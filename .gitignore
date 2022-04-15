@@ -1,0 +1,5 @@
+.ipynb_checkpoints
+Solo
+runs
+model/__pycache__
+.DS_store
