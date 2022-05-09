@@ -57,8 +57,22 @@ def summary(model, file=sys.stdout):
 
     return count
 
+def flatten_attention(a, w_size=31):
+    w_size = (w_size-1)//2 # make it half window size
+    seq_len = a.shape[0]
+    n_heads = a.shape[1]
+    attentions = torch.zeros(seq_len, seq_len)
+    for t in range(seq_len):
+        start = 0 if t-w_size<0 else t-w_size
+        end = seq_len if t+w_size > seq_len else t+w_size
+        if t<w_size:
+            attentions[t, start:end+1] = a[t, -(end-start)-1:]
+        else:
+            attentions[t, start:end] = a[t, :(end-start)]
+            
+    return attentions
 
-def save_pianoroll(path, onsets, frames, onset_threshold=0.5, frame_threshold=0.5, zoom=4):
+def save_pianoroll(path, frames, onset_threshold=0.5, frame_threshold=0.5, zoom=4):
     """
     Saves a piano roll diagram
     Parameters
@@ -70,10 +84,9 @@ def save_pianoroll(path, onsets, frames, onset_threshold=0.5, frame_threshold=0.
     frame_threshold: float
     zoom: int
     """
-    onsets = (1 - (onsets.t() > onset_threshold).to(torch.uint8)).cpu()
     frames = (1 - (frames.t() > frame_threshold).to(torch.uint8)).cpu()
-    both = (1 - (1 - onsets) * (1 - frames))
-    image = torch.stack([onsets, frames, both], dim=2).flip(0).mul(255).numpy()
+    both = (1 - (1 - frames)**2)
+    image = torch.stack([frames, both], dim=2).flip(0).mul(255).numpy()
     image = Image.fromarray(image, 'RGB')
     image = image.resize((image.size[0], image.size[1] * zoom))
     image.save(path)

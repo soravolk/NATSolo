@@ -96,7 +96,7 @@ class Stack(nn.Module):
         x, a = self.attention(x)
         x = self.linear(x)
         x = self.dropout(x)
-
+        # stack shape: (8, 233, 10)
         return x, a
         
 ''' BN for block '''
@@ -158,8 +158,6 @@ class d_block(nn.Module):
             self.us = nn.ConvTranspose2d(inp, inp, kernel_size=ds_ksize, stride=ds_stride) 
 
     def forward(self, x, size=None, isLast=None, skip=None):
-        # print(f'x.shape={x.shape}')
-        # print(f'target shape = {size}')
         x = self.us(x,output_size=size)
         if not isLast: x = torch.cat((x, skip), 1) 
         x = F.leaky_relu(self.bn2d(self.conv2d(x)))
@@ -195,10 +193,7 @@ class Spec2Roll(nn.Module):
         self.linear1 = nn.Linear(N_BINS*complexity, 10) # 10 techniques
         self.linear_feature = nn.Linear(N_BINS, 10)
         self.dropout_layer = nn.Dropout(0.5)
-                                      
-#         self.onset_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=88, dropout=0)
         self.feat_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=10, dropout=0)
-        # self.combine_stack = Stack(input_size=88*2, hidden_dim=768, attn_size=31, attn_group=6, output_dim=88, dropout=0) # attention is inside stack
         
     def forward(self, x):
         # U-net 1
@@ -206,7 +201,6 @@ class Spec2Roll(nn.Module):
         x = self.Unet1_decoder(x,s,c)
         feat, a = self.feat_stack(x[:,0]) # there is only one output from the decoder
         technique = torch.sigmoid(feat)
-        # _, technique = torch.max(output, 1)
         return technique, a
 
 class Roll2Spec(nn.Module):
@@ -214,7 +208,6 @@ class Roll2Spec(nn.Module):
         super().__init__() 
         self.Unet2_encoder = Encoder(ds_ksize, ds_stride)
         self.Unet2_decoder = Decoder(ds_ksize, ds_stride, 1)   
-#             self.lstm2 = nn.LSTM(88, N_BINS, batch_first=True, bidirectional=True)
         self.lstm2 = MutliHeadAttention1D(10, N_BINS*complexity, 31, position=True, groups=4)            
         self.linear2 = nn.Linear(N_BINS*complexity, N_BINS)         
         
@@ -225,7 +218,7 @@ class Roll2Spec(nn.Module):
         x,s,c = self.Unet2_encoder(x.unsqueeze(1))
         reconstruction = self.Unet2_decoder(x,s,c) # predict roll
 
-#         x,s,c = self.Unet2_encoder(x.unsqueeze(1))
+#         x,sq
 #         x = self.Unet2_decoder(x,s,c) # predict roll
 #         x, a = self.lstm2(x.squeeze(1))
 #         reconstruction = self.linear2(x) # ToDo, remove the sigmoid activation and see if we get a better result        
@@ -338,7 +331,7 @@ class UNet(nn.Module):
         self.normalize = Normalization(mode)          
         self.reconstruction = reconstruction
         self.vat_loss = UNet_VAT(XI, eps, 1, False)        
-            
+        self.device = device
 #         self.Unet1_encoder = Encoder(ds_ksize, ds_stride)
 #         self.Unet1_decoder = Decoder(ds_ksize, ds_stride)
 #         self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*4, 31, position=True, groups=4)
@@ -382,131 +375,124 @@ class UNet(nn.Module):
             return pianoroll, a
 
     def run_on_batch(self, batch, batch_ul=None, VAT=False):
-        device = self.device
-        criterion = nn.CrossEntropyLoss()
-        audio_label = batch['audio']
-        technique_label = batch['technique'].flatten().type(torch.LongTensor)
-        technique_label = technique_label.to(device) # squeeze(0)
+      device = self.device
+      criterion = nn.CrossEntropyLoss()
+      audio = batch['audio']
+      technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
+      # squeeze(0)
+      
+      if batch_ul:
+          audio_ul = batch_ul['audio']
+          if audio_ul.dim() != 2:
+            audio_ul = audio_ul[:, :, 0]
+          spec = self.spectrogram(audio_ul) # x = torch.rand(8,229, 640)
+          if self.log:
+              spec = torch.log(spec + 1e-5)
+          spec = self.normalize.transform(spec)
+          spec = spec.transpose(-1,-2).unsqueeze(1)
 
-            
-        if batch_ul:
-            audio_label_ul = batch_ul['audio']  
-            spec = self.spectrogram(audio_label_ul.reshape(-1, audio_label.shape[-1])[:, :-1].T) # x = torch.rand(8,229, 640)
-            if self.log:
-                spec = torch.log(spec + 1e-5)
-            spec = self.normalize.transform(spec)
-            spec = spec.transpose(-1,-2).unsqueeze(1)
+          lds_ul, _, r_norm_ul = self.vat_loss(self, spec)
+      else:
+          lds_ul = {'technique': torch.tensor(0.)}
+          r_norm_ul = torch.tensor(0.)
 
-            lds_ul, _, r_norm_ul = self.vat_loss(self, spec)
-        else:
-            lds_ul = {'technique': torch.tensor(0.)}
-            r_norm_ul = torch.tensor(0.)
+      # Converting audio to spectrograms
+      # spectrogram needs input (num_audio, len_audio):
+      ## convert each batch to a single channel audio
+      if audio.dim() == 2:
+        audio = audio.unsqueeze(0)
+      audio = audio[:, :, 0]
+      spec = self.spectrogram(audio) # x = torch.rand(8, 229, 640)
+      # log compression
+      if self.log:
+          spec = torch.log(spec + 1e-5)
+          
+      # Normalizing spectrograms
+      spec = self.normalize.transform(spec)
+      
+      # swap spec bins with timesteps so that it fits LSTM later 
+      spec = spec.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+      if VAT:
+          lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
+          r_adv = r_adv.squeeze(1) # remove the channel dimension
+      else:
+          r_adv = None
+          lds_l = {'technique': torch.tensor(0.)}
+          r_norm_l = torch.tensor(0.)
+          
+      if self.reconstruction:
+          reconstrut, technique_pred, technique_pred2, a = self(spec)
+          technique_pred = technique_pred[:, :232, :].reshape(-1, 10)
+          technique_pred2 = technique_pred2[:, :232, :].reshape(-1, 10)
+          if self.training:
+              predictions = {
+                      'technique': technique_pred,
+                      'technique2': technique_pred2,
+                      'annotation': technique,
+                      'attention': a,  
+                      'r_adv': r_adv,                
+                      'reconstruction': reconstrut,
+                  }
+              losses = {
+                      'loss/train_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
+                      'loss/train_technique': criterion(predictions['technique'].to(device), technique),
+                      'loss/train_technique2': criterion(predictions['technique2'].to(device), technique),
+                      'loss/train_LDS_l_technique': lds_l['technique'],
+                      'loss/train_LDS_ul_technique': lds_ul['technique'],
+                      'loss/train_r_norm_l': r_norm_l.abs().mean(),
+                      'loss/train_r_norm_ul': r_norm_ul.abs().mean()                     
+                      }
+          else:
+              predictions = {
+                      # format of technique output may need to change
+                      'technique': technique_pred,
+                      'technique2': technique_pred2,
+                      'annotation': technique,                  
+                      'attention': a,   
+                      'r_adv': r_adv,                
+                      'reconstruction': reconstrut,
+                      }                        
+              losses = {
+                      'loss/test_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
+                      'loss/train_technique': criterion(predictions['technique'].to(device), technique),
+                      'loss/train_technique2': criterion(predictions['technique2'].to(device), technique),
+                      'loss/test_LDS_l_technique': lds_l['technique'],
+                      'loss/test_r_norm_l': r_norm_l.abs().mean()             
+                      }                           
 
-        # Converting audio to spectrograms
-        # convert to a single channel audio
-        # spec = self.spectrogram(audio_label[:, :-1].T) # x = torch.rand(9,229, 640)
-        spec = self.spectrogram(audio_label.reshape(-1, audio_label.shape[-1])[:, :-1].T) # x = torch.rand(8,229, 640)
-        
-        # log compression
-        if self.log:
-            spec = torch.log(spec + 1e-5)
-            
-        # Normalizing spectrograms
-        spec = self.normalize.transform(spec)
-        
-        # swap spec bins with timesteps so that it fits LSTM later 
-        spec = spec.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+          return predictions, losses, spec.squeeze(1)
 
-        if VAT:
-            lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
-            r_adv = r_adv.squeeze(1) # remove the channel dimension
-        else:
-            r_adv = None
-            lds_l = {'technique': torch.tensor(0.)}
-            r_norm_l = torch.tensor(0.)   
-        
-        if self.reconstruction:
-            reconstrut, technique_pred, technique_pred2, a = self(spec)
-            technique_pred = technique_pred[0][:1856,:]
-            technique_pred2 = technique_pred2[0][:1856,:]
-            if self.training:             
-                predictions = {
-                        'technique': technique_pred,
-                        'technique2':technique_pred2,
-                        'attention': a,  
-                        'r_adv': r_adv,                
-                        'reconstruction': reconstrut,
-                    }
-                print("predictions", predictions['technique'][0])
-                print("predictions2", predictions['technique2'][0])
-                # print("label shape", technique_label.shape)
-                losses = {
-                        'loss/train_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                        'loss/train_technique': criterion(predictions['technique'].to(device), technique_label),
-                        'loss/train_technique': criterion(predictions['technique2'].to(device), technique_label),
-                        #'loss/train_technique': F.binary_cross_entropy(predictions['technique'].squeeze(1), technique_label),
-                        #'loss/train_technique2': F.binary_cross_entropy(predictions['technique2'].squeeze(1), technique_label),              
-                        'loss/train_LDS_l_technique': lds_l['technique'],
-                        'loss/train_LDS_ul_technique': lds_ul['technique'],
-                        'loss/train_r_norm_l': r_norm_l.abs().mean(),
-                        'loss/train_r_norm_ul': r_norm_ul.abs().mean()                     
-                        }
-            else:
-                predictions = {
-                        'technique': technique_pred.reshape(*technique_label.shape),
-                        'technique2':technique_pred2.reshape(*technique_label.shape),
-                        'attention': a,   
-                        'r_adv': r_adv,                
-                        'reconstruction': reconstrut,                    
-                        }                        
-                
-                losses = {
-                        'loss/test_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                        'loss/train_technique': criterion(predictions['technique'].to(device), technique_label),
-                        'loss/train_technique': criterion(predictions['technique2'].to(device), technique_label),            
-                        # 'loss/test_technique': F.binary_cross_entropy(predictions['technique'].squeeze(1), technique_label),
-                        # 'loss/test_technique2': F.binary_cross_entropy(predictions['technique2'].squeeze(1), technique_label),
-                        'loss/test_LDS_l_technique': lds_l['technique'],
-                        'loss/test_r_norm_l': r_norm_l.abs().mean()             
-                        }                           
+      else:
+          technique_pred, a = self(spec)
+          technique_pred = technique_pred[0][:1856,:]
+          if self.training:
+              predictions = {
+                      'technique': technique_pred,
+                      'annotation': technique,               
+                      'r_adv': r_adv,
+                      'attention': a,
+                      }
+              losses = {
+                      'loss/train_technique': criterion(predictions['technique'].to(device), technique),
+                      'loss/train_LDS_l_technique': lds_l['technique'],
+                      'loss/train_LDS_ul_technique': lds_ul['technique'],
+                      'loss/train_r_norm_l': r_norm_l.abs().mean(),
+                      'loss/train_r_norm_ul': r_norm_ul.abs().mean()                 
+                      }
+          else:
+              predictions = {
+                      'technique': technique_pred,
+                      'annotation': technique,             
+                      'r_adv': r_adv,
+                      'attention': a,
+                      }                        
+              losses = {
+                      'loss/test_technique': criterion(predictions['technique'].to(device), technique),
+                      'loss/test_LDS_l_technique': lds_l['technique'],
+                      'loss/test_r_norm_l': r_norm_l.abs().mean()                  
+                      }                            
 
-            return predictions, losses, spec.squeeze(1)
-
-        else:
-            technique_pred, a = self(spec)
-            technique_pred = technique_pred[0][:1856,:]
-            if self.training:
-                predictions = {
-                        'technique': technique_pred,
-                        'r_adv': r_adv,
-                        'attention': a,                    
-                        }
-                # print("predictions shape: ", predictions['technique'].shape)
-                # print("prediction: ", predictions['technique'][0])
-                # print("label shape: ", technique_label.shape)
-                # print("label: ", technique_label[0])
-                losses = {
-                        'loss/train_technique': criterion(predictions['technique'].to(device), technique_label),
-                        #'loss/train_technique': F.binary_cross_entropy(predictions['technique'].squeeze(1), technique_label),
-                        'loss/train_LDS_l_technique': lds_l['technique'],
-                        'loss/train_LDS_ul_technique': lds_ul['technique'],
-                        'loss/train_r_norm_l': r_norm_l.abs().mean(),
-                        'loss/train_r_norm_ul': r_norm_ul.abs().mean()                 
-                        }
-            else:
-                predictions = {
-                        'technique': technique_pred.reshape(*technique_label.shape),
-                        'r_adv': r_adv,
-                        'attention': a,                    
-                        }                        
-                losses = {
-                        'loss/test_technique': criterion(predictions['technique'].to(device), technique_label),
-                        # loss/test_technique': F.binary_cross_entropy(predictions['technique'].squeeze(1), technique_label),
-                        'loss/test_LDS_l_technique': lds_l['technique'],
-                        'loss/test_r_norm_l': r_norm_l.abs().mean()                  
-                        }                            
-
-            return predictions, losses, spec.squeeze(1)
+          return predictions, losses, spec.squeeze(1)
 
     def load_my_state_dict(self, state_dict):
         """Useful when loading part of the weights. From https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2"""

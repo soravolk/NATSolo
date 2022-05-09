@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 from abc import abstractmethod
 from .constants import *
 
-class PianoRollAudioDataset(Dataset):
+class AudioDataset(Dataset):
     def __init__(self, path, folders=None, sequence_length=None, seed=42, refresh=False, device='cpu'):
         self.path = path
         self.folders = folders if folders is not None else self.available_folders()
@@ -21,31 +21,33 @@ class PianoRollAudioDataset(Dataset):
         self.data = []
         print(f"Loading {len(self.folders)} folder{'s' if len(self.folders) > 1 else ''} "
               f"of {self.__class__.__name__} at {path}")
+        print("Loading folder")
         for folder in self.folders:
-            for input_files in tqdm(self.files(folder), desc='Loading folder %s' % folder): #self.files is defined in MAPS class
-                self.data.append(self.load(*input_files)) # self.load is a function defined below. It first loads all data into memory first
+            for input_files in tqdm(self.files(folder), desc='Loading folder %s' % folder):
+                self.data.append(self.load(*input_files)) # self.load first loads all data into memory first
     def __getitem__(self, index):
 
         data = self.data[index]
         result = dict(path=data['path'])
 
         if self.sequence_length is not None:
+            # audio samples
             audio_length = len(data['audio'])
+            # convert to time step
             step_begin = self.random.randint(audio_length - self.sequence_length) // HOP_LENGTH
-#             print(f'step_begin = {step_begin}')
             
-            n_steps = self.sequence_length // HOP_LENGTH
-            step_end = step_begin + n_steps
-
+            all_steps = self.sequence_length // HOP_LENGTH
+            step_end = step_begin + all_steps
+            # trim audio time to fit the frame
             begin = step_begin * HOP_LENGTH
-#             print(f'begin = {begin}')
-            end = begin + self.sequence_length
+            end = step_end * HOP_LENGTH
+            # end = begin + self.sequence_length
     
             result['audio'] = data['audio'][begin:end].to(self.device)
+            # for labelled data
             if data.get('label') is not None:
               result['technique'] = data['label'][step_begin:step_end].to(self.device).float()
-              result['start_idx'] = begin
-            
+
         else:
             result['audio'] = data['audio'].to(self.device)
             result['technique'] = data['label'].to(self.device).float()
@@ -85,13 +87,13 @@ class PianoRollAudioDataset(Dataset):
                 a matrix that contains MIDI velocity values at the frame locations
         """
         saved_data_path = audio_path.replace('.wav', '.pt')
-        if os.path.exists(saved_data_path) and self.refresh==False: # Check if .pt files exist, if so just load the files
-            return torch.load(saved_data_path)
+        # if os.path.exists(saved_data_path) and self.refresh==False: # Check if .pt files exist, if so just load the files
+        #     return torch.load(saved_data_path)
         # Otherwise, create the .pt files
         audio, sr = soundfile.read(audio_path, dtype='int16')
         assert sr == SAMPLE_RATE
-
-        audio = torch.ShortTensor(audio) # convert numpy array to pytorch tensor
+        # convert numpy array to pytorch tensor
+        audio = torch.ShortTensor(audio) 
         audio_length = len(audio)
         # unlabelled data
         if tsv_path is None:
@@ -100,27 +102,27 @@ class PianoRollAudioDataset(Dataset):
           return data
 
         # !!!this may result in the unmatched time steps btn pred and label!!!
-        n_steps = (audio_length - 1) // HOP_LENGTH + 1 # This will affect the labels time steps
-        label = torch.zeros(n_steps, dtype=torch.uint8)
+        # This will affect the labels time steps
+        all_steps = audio_length  // HOP_LENGTH  
+        # 0 means no technique
+        label = torch.zeros(all_steps, dtype=torch.uint8)
 
         # load labels(start, duration, techniques)
         midi = np.loadtxt(tsv_path, delimiter='\t', skiprows=1)
         
         for start, end, technique in midi:
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
-            left = min(n_steps, left) # Ensure the time step of onset would not exceed the last time step
+            left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
 
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
-            right = min(n_steps, right) # Ensure the time step of frame would not exceed the last time step
+            right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
 
             label[left:right] = technique
-
         data = dict(path=audio_path, audio=audio, label=label)
         torch.save(data, saved_data_path)
-        # torch.save(data, saved_data_path)
         return data
 
-class Solo(PianoRollAudioDataset):
+class Solo(AudioDataset):
     def __init__(self, path='./Solo', folders=None, sequence_length=None, overlap=True,
                  seed=42, refresh=False, device='cpu'):
         self.overlap = overlap
@@ -130,44 +132,31 @@ class Solo(PianoRollAudioDataset):
     def available_folders(cls):
         return ['train', 'test']
     
-    def appending_wav_tsv(self, id_list, folder):
+    def appending_wav_tsv(self, folder):
         wavs = list(glob(os.path.join(self.path, f"{folder}/wav", '*.wav')))
         wavs = sorted(wavs)
         if folder == 'train_unlabel':
           return wavs
 
         tsvs = list(glob(os.path.join(self.path, f"{folder}/tsv", '*.tsv')))
-        tsvs = sorted(tsvs)   
+        tsvs = sorted(tsvs)
         return wavs, tsvs
 
     def files(self, folder):
         if folder == 'train_label':
-            types = np.arange(1, TOTAL_LABEL_FILES + 1)
-            wavs, tsvs = self.appending_wav_tsv(types, folder)
+            wavs, tsvs = self.appending_wav_tsv(folder)
         elif folder == 'train_unlabel':
-            types = np.arange(1, TOTAL_UNLABEL_FILES + 1)
-            wavs = self.appending_wav_tsv(types, folder)
+            wavs = self.appending_wav_tsv(folder)
             return zip(wavs)
         elif folder == 'valid':
-            types = np.arange(1, TOTAL_VALID_FILES + 1)
-            wavs, tsvs = self.appending_wav_tsv(types, folder)
+            wavs, tsvs = self.appending_wav_tsv(folder)
         elif folder == 'test':
-            types = np.arange(1, TOTAL_TEST_FILES + 1)
-            wavs, tsvs = self.appending_wav_tsv(types, folder)
+            wavs, tsvs = self.appending_wav_tsv(folder)
 
         assert(all(os.path.isfile(wav) for wav in wavs))
         assert(all(os.path.isfile(tsv) for tsv in tsvs))
-
+        
         return zip(wavs, tsvs)
-
-def prepare_dataset(sequence_length, validation_length, refresh, device):
-    # Choosing the dataset to use
-    train_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device, refresh=refresh)
-    valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device, refresh=refresh)
-    test_set = Solo(folders=['test'], sequence_length=sequence_length, device=device, refresh=refresh)
-
-    return train_set, valid_set, test_set
-
 
 def prepare_VAT_dataset(sequence_length, validation_length, refresh, device):
     l_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device)            
@@ -177,3 +166,11 @@ def prepare_VAT_dataset(sequence_length, validation_length, refresh, device):
     test_set = Solo(folders=['test'], sequence_length=None, device=device)
     
     return l_set, ul_set, valid_set, test_set
+
+def prepare_dataset(sequence_length, validation_length, refresh, device):
+    # Choosing the dataset to use
+    train_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device, refresh=refresh)
+    valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device, refresh=refresh)
+    test_set = Solo(folders=['test'], sequence_length=sequence_length, device=device, refresh=refresh)
+
+    return train_set, valid_set, test_set
