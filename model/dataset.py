@@ -101,8 +101,10 @@ class AudioDataset(Dataset):
           torch.save(data, saved_data_path)
           return data
 
-        # !!!this may result in the unmatched time steps btn pred and label!!!
-        # This will affect the labels time steps
+        # check if the annotation and audio are matched
+        assert(audio_path.split("/")[-1][:-3] == tsv_path.split("/")[-1][:-3])
+
+        # !!! This will affect the labels' time steps
         all_steps = audio_length  // HOP_LENGTH  
         # 0 means no technique
         label = torch.zeros(all_steps, dtype=torch.uint8)
@@ -138,9 +140,12 @@ class Solo(AudioDataset):
         if folder == 'train_unlabel':
           return wavs
 
-        tsvs = list(glob(os.path.join(self.path, f"{folder}/tsv", '*.tsv')))
-        tsvs = sorted(tsvs)
-        assert(all(tsv[:,-3] == wav[:,-3] for tsv, wav in tsvs, wavs))
+        # make sure tsv and wav are matched
+        tsvs = []
+        for wav in wavs:
+            name = self.path + f"/{folder}/tsv/" + wav.split("/")[-1][:-3] + 'tsv'
+            tsvs.append(name)
+
         return wavs, tsvs
 
     def files(self, folder):
