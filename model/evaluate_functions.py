@@ -9,9 +9,9 @@ from mir_eval.transcription import precision_recall_f1_overlap as evaluate_techn
 from sklearn.metrics import average_precision_score
 from scipy.stats import hmean
 from tqdm import tqdm
-from convert import *
-from constants import *
-from utils import save_pianoroll
+from .convert import *
+from .constants import *
+from .utils import save_pianoroll
 
 eps = sys.float_info.epsilon    
 

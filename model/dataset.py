@@ -140,6 +140,7 @@ class Solo(AudioDataset):
 
         tsvs = list(glob(os.path.join(self.path, f"{folder}/tsv", '*.tsv')))
         tsvs = sorted(tsvs)
+        assert(all(tsv[:,-3] == wav[:,-3] for tsv, wav in tsvs, wavs))
         return wavs, tsvs
 
     def files(self, folder):

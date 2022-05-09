@@ -21,8 +21,8 @@ from itertools import cycle
 from model.UNet import UNet
 from model.dataset import prepare_VAT_dataset
 from model.utils import summary, flatten_attention
+from model.convert import *
 from model.evaluate_functions import *
-# from model.evaluate_functions import evaluate_wo_velocity
 ex = Experiment('train_original')
 
 # parameters for the network
@@ -63,7 +63,7 @@ def config():
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 20000        
+    epoches = 200        
     step_size_up = 100    
     max_lr = 1e-4 
     learning_rate = 1e-3   
@@ -302,7 +302,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     print("valid_set: ", len(valid_set))
     print("test_set: ", len(test_set))
     supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(valid_set, 2, shuffle=False, drop_last=True) # 4 -> 1
+    val_loader = DataLoader(valid_set, 3, shuffle=False, drop_last=True) # 4 -> 1
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
     print('batch_visualize_audio.shape: ', batch_visualize['audio'].shape)
 
@@ -355,7 +355,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         for key, value in {**losses}.items():
             writer.add_scalar(key, value.item(), global_step=ep) 
 
-        
+        # Observe a portion of model prediction
         result = result.append(pd.DataFrame([[predictions['technique'][50:150,:].detach().cpu().numpy(), 
                                         predictions['technique2'][50:150,:].detach().cpu().numpy(), 
                                         predictions['annotation'][50:150].cpu().numpy()]],
