@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 import numpy as np
-from sklearn.utils.class_weight import compute_class_weight
 from nnAudio import features
 from .constants import *
 from .utils import Normalization
@@ -376,20 +375,13 @@ class UNet(nn.Module):
         else:
             return pianoroll, a
 
-    def run_on_batch(self, batch, batch_ul=None, VAT=False):
+    def run_on_batch(self, batch, batch_ul=None, VAT=False, class_weights=None):
       device = self.device
       audio = batch['audio']
       technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
 
       # get the weight for the unbalanced data
-      y = technique.detach().cpu().numpy()
-      label_class = np.unique(y)
-      weights = compute_class_weight('balanced', label_class, y)
-      class_weights = torch.zeros(10)
-      for i, w in enumerate(label_class):
-        class_weights[w] = weights[i]
-      class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
-      criterion = nn.CrossEntropyLoss(weight=class_weights, reduction='mean')
+      criterion = nn.CrossEntropyLoss(weight=class_weights, reduction='mean', ignore_index=1)
       
       if batch_ul:
           audio_ul = batch_ul['audio']

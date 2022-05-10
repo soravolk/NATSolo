@@ -8,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from sklearn.utils.class_weight import compute_class_weight
 from sacred import Experiment
 from sacred.commands import print_config
 from sacred.observers import FileStorageObserver
@@ -66,7 +67,7 @@ def config():
     epoches = 200        
     step_size_up = 100    
     max_lr = 1e-4 
-    learning_rate = 1e-3   
+    learning_rate = 1e-3
     learning_rate_decay_steps = 1000
     learning_rate_decay_rate = 0.98
     clip_gradient_norm = 3
@@ -236,7 +237,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
 
         writer.add_figure('images/Attention', fig , ep) 
 
-def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
+def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, class_weights=None):
     model.train()
     batch_size = l_loader.batch_size
     total_loss = 0
@@ -248,10 +249,10 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
         batch_l = next(l_loader)
         
         if (ep < VAT_start) or (VAT==False):
-            predictions, losses, _ = model.run_on_batch(batch_l, None, False)
+            predictions, losses, _ = model.run_on_batch(batch_l, None, False, class_weights)
         else:
             batch_ul = next(ul_loader)
-            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT)
+            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT, class_weights)
 
 #         loss = sum(losses.values())
         loss = 0
@@ -297,6 +298,12 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
 #     supervised_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
 #                                                                      generator=torch.Generator().manual_seed(42))
+    y = []
+    for data in supervised_set:
+        y.extend(data['technique'].detach().cpu().numpy())    
+    class_weights = compute_class_weight('balanced', np.unique(y), y)
+    class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+
     print("supervised_set: ", len(supervised_set))
     print("unsupervised_set: ", len(unsupervised_set))
     print("valid_set: ", len(valid_set))
@@ -329,10 +336,10 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     for ep in tqdm(range(1, epoches+1)):
         if VAT==True:
             predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, class_weights)
         else:
             predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)            
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, class_weights)            
         loss = sum(losses.values())
 
         # Logging results to tensorboard
