@@ -466,7 +466,7 @@ class UNet(nn.Module):
 
       else:
           technique_pred, a = self(spec)
-          technique_pred = technique_pred[0][:1856,:]
+          technique_pred = technique_pred[:, :232, :].reshape(-1, 10)
           if self.training:
               predictions = {
                       'technique': technique_pred,

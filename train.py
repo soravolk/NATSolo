@@ -31,7 +31,7 @@ ds_ksize, ds_stride = (2,2),(2,2)
 mode = 'imagewise'
 sparsity = 2
 output_channel = 2
-logging_freq = 100
+logging_freq = 100 #100
 saving_freq = 200
 
 
@@ -64,7 +64,7 @@ def config():
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 200        
+    epoches = 2000        
     step_size_up = 100    
     max_lr = 1e-4 
     learning_rate = 1e-3
@@ -79,7 +79,8 @@ def config():
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                    VAT, VAT_start, reconstruction):  
+                    VAT, VAT_start, reconstruction):
+    # log various result from the valid audio
     model.eval()
     predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT)
     loss = sum(losses.values())
@@ -115,7 +116,6 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         fig, axs = plt.subplots(2, 2, figsize=(24,4))
         axs = axs.flat
         for idx, i in enumerate(batch_visualize['technique'].unsqueeze(1).cpu().numpy()):
-            print("i.shape: ", i.shape)
             axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
             axs[idx].axis('off')
         fig.tight_layout()
@@ -137,7 +137,11 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             if output_key in predictions.keys():
                 fig, axs = plt.subplots(2, 2, figsize=(24,4))
                 axs = axs.flat
-                for idx, i in enumerate(predictions[output_key].detach().cpu().numpy()):
+                tech_pred = predictions[output_key].detach().cpu()
+                tech_pred = np.argmax(tech_pred, axis=1) # (696)
+                tech_pred = tech_pred.reshape(-1, 232).unsqueeze(1).numpy() # (3, 232) -> (3, 1, 232)
+
+                for idx, i in enumerate(tech_pred):
                     axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
                     axs[idx].axis('off')
                 fig.tight_layout()
@@ -160,14 +164,14 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
 #             fig.tight_layout()
 #             writer.add_figure('images/onset', fig , ep)            
 
-        if 'activation' in predictions.keys():
-            fig, axs = plt.subplots(2, 2, figsize=(24,4))
-            axs = axs.flat
-            for idx, i in enumerate(predictions['activation'].detach().cpu().numpy()):
-                axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
-                axs[idx].axis('off')
-            fig.tight_layout()
-            writer.add_figure('images/activation', fig , ep)   
+        # if 'activation' in predictions.keys():
+        #     fig, axs = plt.subplots(2, 2, figsize=(24,4))
+        #     axs = axs.flat
+        #     for idx, i in enumerate(predictions['activation'].detach().cpu().numpy()):
+        #         axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
+        #         axs[idx].axis('off')
+        #     fig.tight_layout()
+        #     writer.add_figure('images/activation', fig , ep)   
             
         if 'reconstruction' in predictions.keys():
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
@@ -220,7 +224,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     axvert = divider.append_axes('left', size='30%', pad=0.5)
                     axhoriz = divider.append_axes('top', size='20%', pad=0.25)
                     axhoriz.imshow(attended_features.t().cpu().detach(), aspect='auto', origin='lower', cmap='jet')
-                    axvert.imshow(predictions['technique'][idx].cpu().detach(), aspect='auto')
+                    axvert.imshow(tech_pred[idx], aspect='auto')
 
                     # changing axis for the center fig
                     axCenter.set_xticks([])
