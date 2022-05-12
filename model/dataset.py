@@ -7,6 +7,8 @@ import torch
 from torch.utils.data import Dataset
 from abc import abstractmethod
 from .constants import *
+from .feature_extraction import full_feature_extraction, cfp_feature_extraction
+from .audio_augment import transform_method
 
 class AudioDataset(Dataset):
     def __init__(self, path, folders=None, sequence_length=None, seed=42, refresh=False, device='cpu'):
@@ -164,12 +166,92 @@ class Solo(AudioDataset):
         
         return zip(wavs, tsvs)
 
+class Solo_CFP(Solo):
+    def __init__(self, path='./Solo', folders=None, sequence_length=None, sample_rate=16000, overlap=True,
+                 seed=42, refresh=False, device='cpu', num_feat=9, k=9):
+        self.overlap = overlap
+        self.num_feat = num_feat
+        super().__init__(path, folders, sequence_length, seed, refresh, device)
+        self.normalize = lambda x: (x-np.mean(x))/(np.std(x)+1e-8)    
+        self.sample_rate = sample_rate
+        self.window_size = 2*k + 1  
+        self.k = k 
+    
+    def __getitem__(self, index):
+
+        data = self.data[index]
+        result = dict(path=data['path'])
+        audio = data['audio'][None, :, 0]
+        feat = full_feature_extraction(*cfp_feature_extraction(audio, self.sample_rate))
+        feat = feat.reshape(self.num_feat, 1566//self.num_feat, -1)
+        feat = torch.Tensor(self.normalize(feat))
+
+        result['audio'] = data['audio'].to(self.device)
+        result['feature'] = feat.to(self.device)
+        result['technique'] = data['label'].to(self.device).float()
+
+        # result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15
+
+        return result
+
+class FeatureDataset(torch.utils.data.Dataset):
+    
+    def __init__(self, feature, num_feat=9, k=9):
+
+        # --- Args ---
+        self.window_size = 2*k+1
+        self.k = k
+        
+        # --- Load File ---
+        # self.feature = torch.from_numpy(feature).float()
+        self.feature = feature
+        self.feature = self.feature.reshape((num_feat,1566//num_feat,-1))
+        self.len = self.feature.shape[-1]
+
+        # --- Pad Length ---
+        self.feature = torch.cat([
+            torch.zeros((num_feat,1566//num_feat,k)),
+            self.feature,
+            torch.zeros((num_feat,1566//num_feat,k))
+            ], dim=-1)
+        
+        # --- Transform ---
+        self.transform_dict={'cutout'    :False,
+                             'freq_mask' :{'freq_mask_param':100},
+                             'time_mask' :False,
+                             'pitchshift':{'shift_range':48}, 
+                             'addnoise'  :False,
+                             }
+        self.data_aug = transform_method(self.transform_dict)
+        self.data_normalize = lambda x: (x-torch.mean(x))/(torch.std(x)+1e-8)
+        
+        # --- Normalize ---
+        self.feature = self.data_normalize(self.feature)
+        # --- Augment ---
+        self.feature = self.data_aug(self.feature.unsqueeze(0)).squeeze(0)
+        
+    def __getitem__(self, index):
+        frame_feat = self.feature[:, :, index:index+self.window_size]
+        return index, frame_feat
+    
+    def __len__(self):
+        return self.len
+
 def prepare_VAT_dataset(sequence_length, validation_length, refresh, device):
     l_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device)            
     ul_set = Solo(folders=['train_unlabel'], sequence_length=sequence_length, device=device) 
     valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device)
     # what is full_validation??
     test_set = Solo(folders=['test'], sequence_length=None, device=device)
+    
+    return l_set, ul_set, valid_set, test_set
+
+def prepare_CFP_dataset(sequence_length, validation_length, refresh, device):
+    l_set = Solo_CFP(folders=['train_label'], sequence_length=sequence_length, sample_rate=SAMPLE_RATE, device=device)            
+    ul_set = Solo_CFP(folders=['train_unlabel'], sequence_length=sequence_length, sample_rate=SAMPLE_RATE, device=device) 
+    valid_set = Solo_CFP(folders=['valid'], sequence_length=sequence_length, sample_rate=SAMPLE_RATE, device=device)
+    # what is full_validation??
+    test_set = Solo_CFP(folders=['test'], sequence_length=None, sample_rate=SAMPLE_RATE, device=device)
     
     return l_set, ul_set, valid_set, test_set
 
