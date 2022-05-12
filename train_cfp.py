@@ -247,7 +247,7 @@ def train_VAT_model(model, iteration, ep, bs, l_loader, ul_loader, optimizer, sc
         optimizer.zero_grad()
         batch_l = next(l_loader)
         feat = batch_l['feature']
-        frame_loader = DataLoader(FeatureDataset(feat), bs, shuffle=True, drop_last=True)
+        frame_loader = DataLoader(FeatureDataset(feat, k=WINDOW_SIZE), bs, shuffle=True, drop_last=True)
         if (ep < VAT_start) or (VAT==False):
             predictions, losses, _ = model.run_on_batch(batch_l, None, False, frame_loader)
         else:

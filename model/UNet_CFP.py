@@ -404,9 +404,10 @@ class UNet_CFP(nn.Module):
       if self.reconstruction:
           for step, (idx, feat) in enumerate(frame_loader):
               B = feat.shape[0]
+              window_size = frame_loader.dataset.k
               feat = feat.to(self.device)
               tech = technique[None, :].repeat(B, 1)
-              tech = torch.cat([tech[i, idx[i]:idx[i]+19][None, :] for i in range(len(idx))], dim=0)
+              tech = torch.cat([tech[i, idx[i]:idx[i]+window_size][None, :] for i in range(len(idx))], dim=0)
 
               #   Model Forward Here
               """   feat = (B, 9, h, window_size)
