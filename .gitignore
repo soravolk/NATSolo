@@ -3,3 +3,5 @@ Solo
 runs
 model/__pycache__
 .DS_store
+checkpoint
+prediction
