@@ -322,7 +322,7 @@ class UNet(nn.Module):
                                                       n_bins=N_BINS, fmin=27.5, 
                                                       bins_per_octave=12*r, trainable=False)
         elif spec == 'Mel':
-            self.spectrogram = features.MelSpectrogram(sr=SAMPLE_RATE, win_length=WINDOW_LENGTH, n_mels=N_BINS,
+            self.spectrogram = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=N_FFT, n_mels=N_BINS,
                                                           hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
                                                           trainable_mel=False, trainable_STFT=False)
         else:
@@ -381,7 +381,7 @@ class UNet(nn.Module):
       technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
 
       # get the weight for the unbalanced data
-      criterion = nn.CrossEntropyLoss(weight=class_weights, reduction='mean', ignore_index=1)
+      criterion = nn.CrossEntropyLoss(weight=class_weights, reduction='mean')
       
       if batch_ul:
           audio_ul = batch_ul['audio']

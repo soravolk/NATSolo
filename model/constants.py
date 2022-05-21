@@ -11,13 +11,8 @@ N_BINS = 229 # Default using Mel spectrograms
 MEL_FMIN = 30
 MEL_FMAX = SAMPLE_RATE // 2
 
-# New parameter for Guqin
-# N_BINS = 400 # Default using Mel spectrograms
-# MEL_FMIN = 20
-# MEL_FMAX = SAMPLE_RATE // 2
-
-
 WINDOW_LENGTH = 2048
+N_FFT = 4096
 
 #DEFAULT_DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 

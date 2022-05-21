@@ -1,6 +1,7 @@
 .ipynb_checkpoints
 Solo
 runs
+checkpoint
 model/__pycache__
 .DS_store
 checkpoint
