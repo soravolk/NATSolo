@@ -5,4 +5,4 @@ checkpoint
 model/__pycache__
 .DS_store
 checkpoint
-prediction
+model/yolo_exp/yolox/models/yolox_s.pth

@@ -87,11 +87,11 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             for key, values in evaluate_prediction(valid_set, model, reconstruction=reconstruction).items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
+                    # show metrics on terminal
                     print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')
                     if ('precision' in name or 'recall' in name or 'f1' in name) and 'chroma' not in name:
                         writer.add_scalar(key, np.mean(values), global_step=ep)
-#                 if key.startswith('loss/'):
-#                     writer.add_scalar(key, np.mean(values), global_step=ep)   
+
         # test on labelled training set
         model.eval()
         test_losses = eval_model(model, ep, supervised_loader, VAT_start, VAT)
