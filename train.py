@@ -34,7 +34,6 @@ output_channel = 2
 logging_freq = 100 #100
 saving_freq = 200
 
-
 @ex.config
 def config():
     root = 'runs'
@@ -43,7 +42,7 @@ def config():
     log = True
     w_size = 31
     spec = 'Mel'
-    resume_iteration = None # 'model-1200'
+    resume_iteration = 'model-200' # 'model-1200'
     train_on = 'Solo'
     n_heads=4
     iteration = 10
@@ -76,10 +75,8 @@ def config():
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                     VAT, VAT_start, reconstruction):
-    # log various result from the valid audio
+    # log various result from the validation audio
     model.eval()
-    predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT)
-    loss = sum(losses.values())
 
     if (ep)%logging_freq==0 or ep==1:
         # on valid set
@@ -99,24 +96,31 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             if key.startswith('loss/'):
                 writer.add_scalar(key, np.mean(values), global_step=ep)
 
-    if ep==1: # Showing the original transcription and spectrograms
+    # visualized validation audio
+    predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT)
+    loss = sum(losses.values())
+    # Show the original transcription and spectrograms
+    if ep==1:
+        # spectrogram
         fig, axs = plt.subplots(2, 2, figsize=(24,8))
         axs = axs.flat
         for idx, i in enumerate(mel.cpu().detach().numpy()):
             axs[idx].imshow(i.transpose(), cmap='jet', origin='lower')
             axs[idx].axis('off')
         fig.tight_layout()
-
         writer.add_figure('images/Original', fig , ep)
 
+        # technique ground truth
         fig, axs = plt.subplots(2, 2, figsize=(24,4))
         axs = axs.flat
+        # batch_visualize['technique'].shape: [3, 232]
         for idx, i in enumerate(batch_visualize['technique'].unsqueeze(1).cpu().numpy()):
-            axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
+            axs[idx].imshow(i, origin='lower', vmax=1, vmin=0)
             axs[idx].axis('off')
         fig.tight_layout()
         writer.add_figure('images/Label', fig , ep)
         
+        # when the spectrogram adds adversarial direction
         if predictions['r_adv'] is not None: 
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
             axs = axs.flat
@@ -127,7 +131,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             fig.tight_layout()
 
             writer.add_figure('images/Spec_adv', fig , ep)           
-
+    # Show the training result every period of epoch
     if ep%logging_freq == 0:
         for output_key in ['technique', 'technique2']:
             if output_key in predictions.keys():
@@ -141,34 +145,8 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
                     axs[idx].axis('off')
                 fig.tight_layout()
-                writer.add_figure(f'images/{output_key}', fig , ep)                
-        
-#         fig, axs = plt.subplots(2, 2, figsize=(24,4))
-#         axs = axs.flat
-#         for idx, i in enumerate(predictions['frame'].detach().cpu().numpy()):
-#             axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
-#             axs[idx].axis('off')
-#         fig.tight_layout()
-#         writer.add_figure('images/Transcription', fig , ep)
-
-#         if 'onset' in predictions.keys():
-#             fig, axs = plt.subplots(2, 2, figsize=(24,4))
-#             axs = axs.flat
-#             for idx, i in enumerate(predictions['onset'].detach().cpu().numpy()):
-#                 axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
-#                 axs[idx].axis('off')
-#             fig.tight_layout()
-#             writer.add_figure('images/onset', fig , ep)            
-
-        # if 'activation' in predictions.keys():
-        #     fig, axs = plt.subplots(2, 2, figsize=(24,4))
-        #     axs = axs.flat
-        #     for idx, i in enumerate(predictions['activation'].detach().cpu().numpy()):
-        #         axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
-        #         axs[idx].axis('off')
-        #     fig.tight_layout()
-        #     writer.add_figure('images/activation', fig , ep)   
-            
+                writer.add_figure(f'images/{output_key}', fig , ep)
+           
         if 'reconstruction' in predictions.keys():
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
             axs = axs.flat
@@ -176,7 +154,6 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 axs[idx].imshow(i.transpose(), cmap='jet', origin='lower')
                 axs[idx].axis('off')
             fig.tight_layout()
-
             writer.add_figure('images/Reconstruction', fig , ep)                     
 
         # show adversarial samples    
@@ -188,7 +165,6 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 axs[idx].imshow(x_adv, vmax=1, vmin=0, cmap='jet', origin='lower')
                 axs[idx].axis('off')
             fig.tight_layout()
-
             writer.add_figure('images/Spec_adv', fig , ep)            
 
         # show attention    
@@ -234,7 +210,6 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
 
                     axhoriz.margins(x=0)
                     axvert.margins(y=0)
-
         writer.add_figure('images/Attention', fig , ep) 
 
 def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, class_weights=None):
@@ -254,17 +229,16 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
             batch_ul = next(ul_loader)
             predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT, class_weights)
 
-#         loss = sum(losses.values())
         loss = 0
+        # tweak the loss
+        # loss = losses(label) + losses(recon) + alpha*(losses['loss/train_LDS_l']+losses['loss/train_LDS_ul'])/2
+        # alpha = 1 in the original paper
         for key in losses.keys():
             if key.startswith('loss/train_LDS'):
-        #         print(key)
-                loss += alpha*losses[key]/2 # No need to divide by 2 if you have only _l
+                loss += alpha*losses[key]/2  # No need to divide by 2 if you have only _l -> ? but you divide both...
             else:
                 loss += losses[key]
-
-#     loss = losses['loss/train_frame'] + alpha*(losses['loss/train_LDS_l']+losses['loss/train_LDS_ul'])/2
-            
+  
         loss.backward()
         total_loss += loss.item()
 
@@ -311,21 +285,19 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(valid_set, 3, shuffle=False, drop_last=True) # 4 -> 1
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
-    print('batch_visualize_audio.shape: ', batch_visualize['audio'].shape)
 
     ds_ksize, ds_stride = (2,2),(2,2)     
     model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
                     mode=mode, spec=spec, device=device, XI=XI, eps=eps)
+    model.to(device)
     if resume_iteration is None:  
-        model.to(device)
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0
     else: # Loading checkpoints and continue training
-        trained_dir='checkpoint' # Assume that the checkpoint is in this folder
-        model_path = os.path.join(trained_dir, f'{resume_iteration}.pt')
-        model.load_state_dict(model_path)
+        model_path = os.path.join('checkpoint', f'{resume_iteration}.pt')
+        model.load_state_dict(torch.load(model_path))
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
-        optimizer.load_state_dict(torch.load(os.path.join(trained_dir, 'last-optimizer-state.pt')))
+        optimizer.load_state_dict(torch.load(os.path.join('checkpoint', 'last-optimizer-state.pt')))
 
     summary(model)
     # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,cycle_momentum=False)
@@ -354,8 +326,8 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 
         # Saving model
         if (ep)%saving_freq == 0:
-            torch.save(model.state_dict(), os.path.join(logdir, f'model-{ep}.pt'))
-            torch.save(optimizer.state_dict(), os.path.join(logdir, 'last-optimizer-state.pt'))
+            torch.save(model.state_dict(), os.path.join('checkpoint', f'model-{ep}.pt'))
+            torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
         
         for key, value in {**losses}.items():
             writer.add_scalar(key, value.item(), global_step=ep) 

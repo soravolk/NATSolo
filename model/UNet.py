@@ -251,7 +251,6 @@ class UNet_VAT(nn.Module):
     """
     We define a function of regularization, specifically VAT.
     """
-
     def __init__(self, XI, epsilon, n_power, KL_Div, reconstruction=False):
         super().__init__()
         self.n_power = n_power
@@ -267,9 +266,9 @@ class UNet_VAT(nn.Module):
             frame_ref, _ = model.transcriber(x) # This will be used as a label, therefore no need grad()
             
 #             if self.reconstruction:
-#                 pianoroll, _ = model.transcriber(x)
-#                 reconstruction, _ = self.reconstructor(pianoroll)
-#                 pianoroll2_ref, _ = self.transcriber(reconstruction)                
+#                 technique, _ = model.transcriber(x)
+#                 reconstruction, _ = self.reconstructor(technique)
+#                 technique2_ref, _ = self.transcriber(reconstruction)                
             
         # generate_virtual_adversarial_perturbation
         d = torch.randn_like(x, requires_grad=True) # Need gradient
@@ -351,16 +350,16 @@ class UNet(nn.Module):
     def forward(self, x):
 
         # U-net 1
-        pianoroll, a = self.transcriber(x)
+        technique, a = self.transcriber(x)
 
         if self.reconstruction:     
             # U-net 2
-            reconstruction, a_reconstruct = self.reconstructor(pianoroll)
+            reconstruction, a_reconstruct = self.reconstructor(technique)
             # Applying U-net 1 to the reconstructed spectrograms
-            pianoroll2, a_2 = self.transcriber(reconstruction)
+            technique2, a_2 = self.transcriber(reconstruction)
             
 #             # U-net2
-#             x, h = self.lstm2(pianoroll)
+#             x, h = self.lstm2(technique)
 #             feat2= torch.sigmoid(self.linear2(x)) # ToDo, remove the sigmoid activation and see if we get a better result
 #             x,s,c = self.Unet2_encoder(feat2.unsqueeze(1))
 #             reconstruction = self.Unet2_decoder(x,s,c) # predict roll
@@ -369,11 +368,11 @@ class UNet(nn.Module):
 #             x,s,c = self.Unet1_encoder(reconstruction)
 #             feat1b = self.Unet1_decoder(x,s,c)
 #             x, h = self.lstm1(feat1b.squeeze(1)) # remove the channel dim
-#             pianoroll2 = torch.sigmoid(self.linear1(x)) # Use the full LSTM output
+#             technique2 = torch.sigmoid(self.linear1(x)) # Use the full LSTM output
 
-            return reconstruction, pianoroll, pianoroll2, a
+            return reconstruction, technique, technique2, a
         else:
-            return pianoroll, a
+            return technique, a
 
     def run_on_batch(self, batch, batch_ul=None, VAT=False, class_weights=None):
       device = self.device
@@ -383,13 +382,15 @@ class UNet(nn.Module):
       # get the weight for the unbalanced data
       criterion = nn.CrossEntropyLoss(weight=class_weights, reduction='mean')
       
+      #####################for unlabelled audio###########################
+      # do VAT for unlabelled audio
       if batch_ul:
           audio_ul = batch_ul['audio']
           if audio_ul.dim() != 2:
             audio_ul = audio_ul[:, :, 0]
           spec = self.spectrogram(audio_ul) # x = torch.rand(8,229, 640)
           if self.log:
-              spec = torch.log(spec + 1e-5)
+            spec = torch.log(spec + 1e-5)
           spec = self.normalize.transform(spec)
           spec = spec.transpose(-1,-2).unsqueeze(1)
 
@@ -397,6 +398,7 @@ class UNet(nn.Module):
       else:
           lds_ul = {'technique': torch.tensor(0.)}
           r_norm_ul = torch.tensor(0.)
+      #####################for unlabelled audio###########################
 
       # Converting audio to spectrograms
       # spectrogram needs input (num_audio, len_audio):
@@ -412,8 +414,9 @@ class UNet(nn.Module):
       # Normalizing spectrograms
       spec = self.normalize.transform(spec)
       
-      # swap spec bins with timesteps so that it fits LSTM later 
+      # swap spec bins with timesteps so that it fits attention later 
       spec = spec.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+      # do VAT for labelled audio
       if VAT:
           lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
           r_adv = r_adv.squeeze(1) # remove the channel dimension
@@ -437,8 +440,8 @@ class UNet(nn.Module):
                   }
               losses = {
                       'loss/train_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                      'loss/train_technique': criterion(predictions['technique'].to(device), technique),
-                      'loss/train_technique2': criterion(predictions['technique2'].to(device), technique),
+                      'loss/train_technique': criterion(predictions['technique'], technique),
+                      'loss/train_technique2': criterion(predictions['technique2'], technique),
                       'loss/train_LDS_l_technique': lds_l['technique'],
                       'loss/train_LDS_ul_technique': lds_ul['technique'],
                       'loss/train_r_norm_l': r_norm_l.abs().mean(),
@@ -456,8 +459,8 @@ class UNet(nn.Module):
                       }                        
               losses = {
                       'loss/test_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                      'loss/train_technique': criterion(predictions['technique'].to(device), technique),
-                      'loss/train_technique2': criterion(predictions['technique2'].to(device), technique),
+                      'loss/train_technique': criterion(predictions['technique'], technique),
+                      'loss/train_technique2': criterion(predictions['technique2'], technique),
                       'loss/test_LDS_l_technique': lds_l['technique'],
                       'loss/test_r_norm_l': r_norm_l.abs().mean()             
                       }                           
@@ -475,7 +478,7 @@ class UNet(nn.Module):
                       'attention': a,
                       }
               losses = {
-                      'loss/train_technique': criterion(predictions['technique'].to(device), technique),
+                      'loss/train_technique': criterion(predictions['technique'], technique),
                       'loss/train_LDS_l_technique': lds_l['technique'],
                       'loss/train_LDS_ul_technique': lds_ul['technique'],
                       'loss/train_r_norm_l': r_norm_l.abs().mean(),
@@ -489,7 +492,7 @@ class UNet(nn.Module):
                       'attention': a,
                       }                        
               losses = {
-                      'loss/test_technique': criterion(predictions['technique'].to(device), technique),
+                      'loss/test_technique': criterion(predictions['technique'], technique),
                       'loss/test_LDS_l_technique': lds_l['technique'],
                       'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                       }                            
