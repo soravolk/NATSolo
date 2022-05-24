@@ -37,16 +37,15 @@ saving_freq = 200
 @ex.config
 def config():
     root = 'runs'
-    onset_stack=True
     device = 'cuda:0'
     log = True
     w_size = 31
     spec = 'Mel'
-    resume_iteration = 'model-200' # 'model-1200'
+    resume_iteration = None # 'model-1200'
     train_on = 'Solo'
     n_heads=4
     iteration = 10
-    VAT_start = 0
+    VAT_start = 100 # 0 
     alpha = 1
     VAT=True
     XI= 1e-6
@@ -54,12 +53,13 @@ def config():
     reconstruction = True
     batch_size = 8
     train_batch_size = 8
+    val_batch_size = 3
     sequence_length = 327680
     if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 2000        
+    epoches = 8000 # 20000       
     step_size_up = 100    
     max_lr = 1e-4 
     learning_rate = 1e-3
@@ -272,9 +272,11 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
 #     supervised_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
 #                                                                      generator=torch.Generator().manual_seed(42))
+    
+    # get weight for BCE loss
     y = []
     for data in supervised_set:
-        y.extend(data['technique'].detach().cpu().numpy())    
+        y.extend(data['technique'].detach().cpu().numpy())
     class_weights = compute_class_weight('balanced', np.unique(y), y)
     class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
 
@@ -283,9 +285,10 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     print("valid_set: ", len(valid_set))
     print("test_set: ", len(test_set))
     supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(valid_set, 3, shuffle=False, drop_last=True) # 4 -> 1
+    val_loader = DataLoader(valid_set, val_batch_size, shuffle=False, drop_last=True)
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
 
+    # model setting
     ds_ksize, ds_stride = (2,2),(2,2)     
     model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
                     mode=mode, spec=spec, device=device, XI=XI, eps=eps)
@@ -315,7 +318,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         # Logging results to tensorboard
         if ep == 1:
             writer = SummaryWriter(logdir) # create tensorboard logger     
-        if ep < VAT_start:
+        if ep < VAT_start or VAT == False:
             tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                             False, VAT_start, reconstruction)
