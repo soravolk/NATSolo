@@ -257,7 +257,7 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
     return predictions, losses, optimizer
 
 @ex.automain
-def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size,
+def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size, val_batch_size,
           learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, alpha,
           clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
           reconstruction): 

@@ -189,19 +189,21 @@ class Spec2Roll(nn.Module):
         super().__init__() 
         self.Unet1_encoder = Encoder(ds_ksize, ds_stride)
         self.Unet1_decoder = Decoder(ds_ksize, ds_stride, 1)
-        self.lstm1 = MutliHeadAttention1D(N_BINS+10, N_BINS*complexity, 31, position=True, groups=complexity)
+        self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*complexity, 31, position=True, groups=complexity)
         # self.lstm1 = nn.LSTM(N_BINS, N_BINS, batch_first=True, bidirectional=True)    
         self.linear1 = nn.Linear(N_BINS*complexity, 10) # 10 techniques
-        self.linear_feature = nn.Linear(N_BINS, 10)
-        self.dropout_layer = nn.Dropout(0.5)
-        self.feat_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=10, dropout=0)
+        # self.linear_feature = nn.Linear(N_BINS, 10)
+        # self.dropout_layer = nn.Dropout(0.5)
+        # self.feat_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=10, dropout=0)
         
     def forward(self, x):
         # U-net 1
         x,s,c = self.Unet1_encoder(x)
         x = self.Unet1_decoder(x,s,c)
-        feat, a = self.feat_stack(x[:,0]) # there is only one output from the decoder
-        technique = torch.sigmoid(feat)
+        x, a = self.lstm1(x[:,0]) # there is only one output from the decoder
+        technique = torch.sigmoid(self.linear1(x))
+        # feat, a = self.feat_stack(x[:,0]) # there is only one output from the decoder
+        # technique = torch.sigmoid(feat)
         return technique, a
 
 class Roll2Spec(nn.Module):
@@ -324,6 +326,15 @@ class UNet(nn.Module):
             self.spectrogram = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=N_FFT, n_mels=N_BINS,
                                                           hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
                                                           trainable_mel=False, trainable_STFT=False)
+        elif spec == 'CFP':
+            self.spectrogram = features.CFP(fs=SAMPLE_RATE,
+                                               fr=4,
+                                               window_size=WINDOW_LENGTH,
+                                               hop_length=HOP_LENGTH,
+                                               fc=MEL_FMIN,
+                                               tc=1/MEL_FMAX)       
+            N_BINS = self.spectrogram.quef2logfreq_matrix.shape[0]
+        # TODO: add S, GC, GCoS here
         else:
             print(f'Please select a correct spectrogram')                
 
@@ -331,20 +342,10 @@ class UNet(nn.Module):
         self.normalize = Normalization(mode)          
         self.reconstruction = reconstruction
         self.vat_loss = UNet_VAT(XI, eps, 1, False)        
-        self.device = device
-#         self.Unet1_encoder = Encoder(ds_ksize, ds_stride)
-#         self.Unet1_decoder = Decoder(ds_ksize, ds_stride)
-#         self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*4, 31, position=True, groups=4)
-#         # self.lstm1 = nn.LSTM(N_BINS, N_BINS, batch_first=True, bidirectional=True)    
-#         self.linear1 = nn.Linear(N_BINS*4, 88)      
+        self.device = device   
         self.transcriber = Spec2Roll(ds_ksize, ds_stride)
 
         if reconstruction==True:
-#             self.Unet2_encoder = Encoder(ds_ksize, ds_stride)
-#             self.Unet2_decoder = Decoder(ds_ksize, ds_stride)   
-# #             self.lstm2 = nn.LSTM(88, N_BINS, batch_first=True, bidirectional=True)
-#             self.lstm2 = MutliHeadAttention1D(88, N_BINS*4, 31, position=True, groups=4)            
-#             self.linear2 = nn.Linear(N_BINS*4, N_BINS)      
             self.reconstructor = Roll2Spec(ds_ksize, ds_stride)
                
     def forward(self, x):
@@ -357,19 +358,6 @@ class UNet(nn.Module):
             reconstruction, a_reconstruct = self.reconstructor(technique)
             # Applying U-net 1 to the reconstructed spectrograms
             technique2, a_2 = self.transcriber(reconstruction)
-            
-#             # U-net2
-#             x, h = self.lstm2(technique)
-#             feat2= torch.sigmoid(self.linear2(x)) # ToDo, remove the sigmoid activation and see if we get a better result
-#             x,s,c = self.Unet2_encoder(feat2.unsqueeze(1))
-#             reconstruction = self.Unet2_decoder(x,s,c) # predict roll
-
-#             # Applying U-net 1 to the reconstructed spectrograms
-#             x,s,c = self.Unet1_encoder(reconstruction)
-#             feat1b = self.Unet1_decoder(x,s,c)
-#             x, h = self.lstm1(feat1b.squeeze(1)) # remove the channel dim
-#             technique2 = torch.sigmoid(self.linear1(x)) # Use the full LSTM output
-
             return reconstruction, technique, technique2, a
         else:
             return technique, a
