@@ -374,8 +374,10 @@ class UNet(nn.Module):
       # do VAT for unlabelled audio
       if batch_ul:
           audio_ul = batch_ul['audio']
-          if audio_ul.dim() != 2:
-            audio_ul = audio_ul[:, :, 0]
+          if audio_ul.dim() == 2 and audio_ul.shape[-1] != 2:
+            # audio_ul is already mono
+            audio_ul.unsqueeze_(-1)
+          audio_ul = audio_ul[:, :, 0]
           spec = self.spectrogram(audio_ul) # x = torch.rand(8,229, 640)
           if self.log:
             spec = torch.log(spec + 1e-5)
@@ -384,6 +386,7 @@ class UNet(nn.Module):
 
           lds_ul, _, r_norm_ul = self.vat_loss(self, spec)
       else:
+          # lds_ul = torch.tensor(0.)
           lds_ul = {'technique': torch.tensor(0.)}
           r_norm_ul = torch.tensor(0.)
       #####################for unlabelled audio###########################
@@ -421,7 +424,6 @@ class UNet(nn.Module):
               predictions = {
                       'technique': technique_pred,
                       'technique2': technique_pred2,
-                      'annotation': technique,
                       'attention': a,  
                       'r_adv': r_adv,                
                       'reconstruction': reconstrut,
@@ -430,26 +432,26 @@ class UNet(nn.Module):
                       'loss/train_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
                       'loss/train_technique': criterion(predictions['technique'], technique),
                       'loss/train_technique2': criterion(predictions['technique2'], technique),
-                      'loss/train_LDS_l_technique': lds_l['technique'],
-                      'loss/train_LDS_ul_technique': lds_ul['technique'],
+                      'loss/train_LDS_l': lds_l['technique'],
+                      'loss/train_LDS_ul': lds_ul['technique'],
                       'loss/train_r_norm_l': r_norm_l.abs().mean(),
                       'loss/train_r_norm_ul': r_norm_ul.abs().mean()                     
                       }
           else:
+              # testing
               predictions = {
                       # format of technique output may need to change
-                      'technique': technique_pred,
-                      'technique2': technique_pred2,
-                      'annotation': technique,                  
-                      'attention': a,   
+                      'technique': technique_pred.argmax(axis=1).reshape(-1, 232),
+                      'technique2': technique_pred2.argmax(axis=1).reshape(-1, 232),
+                      'attention': a,
                       'r_adv': r_adv,                
                       'reconstruction': reconstrut,
                       }                        
               losses = {
                       'loss/test_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                      'loss/train_technique': criterion(predictions['technique'], technique),
-                      'loss/train_technique2': criterion(predictions['technique2'], technique),
-                      'loss/test_LDS_l_technique': lds_l['technique'],
+                      'loss/train_technique': criterion(technique_pred, technique),
+                      'loss/train_technique2': criterion(technique_pred2, technique),
+                      'loss/test_LDS_l': lds_l['technique'],
                       'loss/test_r_norm_l': r_norm_l.abs().mean()             
                       }                           
 
@@ -461,27 +463,26 @@ class UNet(nn.Module):
           if self.training:
               predictions = {
                       'technique': technique_pred,
-                      'annotation': technique,               
                       'r_adv': r_adv,
                       'attention': a,
                       }
               losses = {
                       'loss/train_technique': criterion(predictions['technique'], technique),
-                      'loss/train_LDS_l_technique': lds_l['technique'],
-                      'loss/train_LDS_ul_technique': lds_ul['technique'],
+                      'loss/train_LDS_l': lds_l['technique'],
+                      'loss/train_LDS_ul': lds_ul['technique'],
                       'loss/train_r_norm_l': r_norm_l.abs().mean(),
                       'loss/train_r_norm_ul': r_norm_ul.abs().mean()                 
                       }
           else:
+              # testing
               predictions = {
-                      'technique': technique_pred,
-                      'annotation': technique,             
+                      'technique': technique_pred.argmax(axis=1).reshape(-1, 232),
                       'r_adv': r_adv,
                       'attention': a,
                       }                        
               losses = {
                       'loss/test_technique': criterion(predictions['technique'], technique),
-                      'loss/test_LDS_l_technique': lds_l['technique'],
+                      'loss/test_LDS_l': lds_l['technique'],
                       'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                       }                            
 

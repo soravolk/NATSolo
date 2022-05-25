@@ -52,7 +52,7 @@ class AudioDataset(Dataset):
             result['audio'] = data['audio'].to(self.device)
             result['technique'] = data['label'].to(self.device).float()
 
-        result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15
+        result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
 
         return result
 

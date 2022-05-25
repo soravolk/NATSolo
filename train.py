@@ -45,7 +45,7 @@ def config():
     train_on = 'Solo'
     n_heads=4
     iteration = 10
-    VAT_start = 100 # 0 
+    VAT_start = 0
     alpha = 1
     VAT=True
     XI= 1e-6

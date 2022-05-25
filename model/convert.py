@@ -16,14 +16,9 @@ def extract_technique(tech, gt=False):
     # onsets = onsets.cpu().to(torch.uint8)
     # onset_diff = torch.cat([onsets[:1, :], onsets[1:, :] - onsets[:-1, :]], dim=0) == 1 # Make sure the activation is only 1 time-step
     
-    tech = tech.cpu() # float
     # convert from label 0 - 9 to 1 - 10 for mir_eval by adding 1
-    if gt is False:
-      tech = np.argmax(tech, axis=1) + 1
-    else:
-      tech = tech + 1
-    
-    tech = tech.to(torch.uint8)
+    tech = tech.cpu() # float
+    tech = (tech + 1).to(torch.uint8)
     print('technique frame + 1: ', tech)
 
     techniques = []

@@ -30,10 +30,10 @@ def evaluate_prediction(data, model, save_path=None, reconstruction=True):
 
         # find the technique timings
         # groundtruth: val_data['technique'].shape [232]
-        val_data['technique'] = val_data['technique'] # value.shape [232, 1]
+
         # get techinique and interval
         tech_ref, interval_ref = extract_technique(val_data['technique'], gt=True)
-        tech_est, interval_est = extract_technique(pred['technique'])
+        tech_est, interval_est = extract_technique(pred['technique'].squeeze(0))
 
         scaling = HOP_LENGTH / SAMPLE_RATE
 
@@ -55,7 +55,7 @@ def evaluate_prediction(data, model, save_path=None, reconstruction=True):
         metrics['metric/technique-with-offsets/overlap'].append(o)
         
         if reconstruction:
-            tech_est2, interval_est2 = extract_technique(pred['technique2'])                
+            tech_est2, interval_est2 = extract_technique(pred['technique2'].squeeze(0))                
             interval_est2 = (interval_est2 * scaling).reshape(-1, 2)  
 
             p2, r2, f2, o2 = evaluate_techniques(interval_ref, tech_ref, interval_est2, tech_est2, offset_ratio=None)
