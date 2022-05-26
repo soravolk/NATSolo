@@ -1,6 +1,7 @@
 import os
 from glob import glob
 from tqdm import tqdm
+from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
 import soundfile
 import torch
@@ -26,7 +27,6 @@ class AudioDataset(Dataset):
             for input_files in tqdm(self.files(folder), desc='Loading folder %s' % folder):
                 self.data.append(self.load(*input_files)) # self.load first loads all data into memory first
     def __getitem__(self, index):
-
         data = self.data[index]
         result = dict(path=data['path'])
 
@@ -106,7 +106,7 @@ class AudioDataset(Dataset):
 
         # !!! This will affect the labels' time steps
         all_steps = audio_length  // HOP_LENGTH  
-        # 0 means no technique
+        # 0 means silence
         label = torch.zeros(all_steps, dtype=torch.uint8)
 
         # load labels(start, duration, techniques)
@@ -173,10 +173,14 @@ def prepare_VAT_dataset(sequence_length, validation_length, refresh, device):
     
     return l_set, ul_set, valid_set, test_set
 
-def prepare_dataset(sequence_length, validation_length, refresh, device):
-    # Choosing the dataset to use
-    train_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device, refresh=refresh)
-    valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device, refresh=refresh)
-    test_set = Solo(folders=['test'], sequence_length=sequence_length, device=device, refresh=refresh)
+def compute_dataset_weight(device):
+    train_set = Solo(folders=['train_label'], sequence_length=None, device=device, refresh=None)
 
-    return train_set, valid_set, test_set
+    y = []
+    for data in train_set:
+        print('data.technique.shape', data['technique'].shape)
+        y.extend(data['technique'].detach().cpu().numpy())
+    class_weights = compute_class_weight('balanced', np.unique(y), y)
+    class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+    
+    return class_weights

@@ -20,7 +20,7 @@ from tqdm import tqdm
 from itertools import cycle
 
 from model.UNet import UNet
-from model.dataset import prepare_VAT_dataset
+from model.dataset import prepare_VAT_dataset, compute_dataset_weight
 from model.utils import summary, flatten_attention
 from model.convert import *
 from model.evaluate_functions import *
@@ -138,8 +138,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 fig, axs = plt.subplots(2, 2, figsize=(24,4))
                 axs = axs.flat
                 tech_pred = predictions[output_key].detach().cpu()
-                tech_pred = np.argmax(tech_pred, axis=1) # (696)
-                tech_pred = tech_pred.reshape(-1, 232).unsqueeze(1).numpy() # (3, 232) -> (3, 1, 232)
+                tech_pred = tech_pred.unsqueeze(1).numpy() # (3, 232) -> (3, 1, 232)
 
                 for idx, i in enumerate(tech_pred):
                     axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
@@ -274,11 +273,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight for BCE loss
-    y = []
-    for data in supervised_set:
-        y.extend(data['technique'].detach().cpu().numpy())
-    class_weights = compute_class_weight('balanced', np.unique(y), y)
-    class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
+    class_weights = compute_dataset_weight(device)
 
     print("supervised_set: ", len(supervised_set))
     print("unsupervised_set: ", len(unsupervised_set))
