@@ -365,8 +365,8 @@ class UNet(nn.Module):
     def run_on_batch(self, batch, batch_ul=None, VAT=False, class_weights=None):
       device = self.device
       audio = batch['audio']
+      gt_bin = batch['technique'].shape[-1] # ground truth bin size
       technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
-
       # get the weight for the unbalanced data
       criterion = nn.CrossEntropyLoss(weight=class_weights, reduction='mean')
       
@@ -394,9 +394,15 @@ class UNet(nn.Module):
       # Converting audio to spectrograms
       # spectrogram needs input (num_audio, len_audio):
       ## convert each batch to a single channel audio
-      if audio.dim() == 2:
-        audio = audio.unsqueeze(0)
-      audio = audio[:, :, 0]
+      if audio.shape[-1] == 2:
+        # stereo
+        if audio.dim() == 2:
+          # validation audio
+          audio = audio.unsqueeze(0)
+        if audio.dim() == 3:
+          # batch 
+          audio = audio[:, :, 0]
+        
       spec = self.spectrogram(audio) # x = torch.rand(8, 229, 640)
       # log compression
       if self.log:
@@ -418,8 +424,8 @@ class UNet(nn.Module):
           
       if self.reconstruction:
           reconstrut, technique_pred, technique_pred2, a = self(spec)
-          technique_pred = technique_pred[:, :232, :].reshape(-1, 10)
-          technique_pred2 = technique_pred2[:, :232, :].reshape(-1, 10)
+          technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
+          technique_pred2 = technique_pred2[:, :gt_bin, :].reshape(-1, 10)
           if self.training:
               predictions = {
                       'technique': technique_pred,
@@ -441,8 +447,8 @@ class UNet(nn.Module):
               # testing
               predictions = {
                       # format of technique output may need to change
-                      'technique': technique_pred.argmax(axis=1).reshape(-1, 232),
-                      'technique2': technique_pred2.argmax(axis=1).reshape(-1, 232),
+                      'technique': technique_pred.argmax(axis=1).reshape(-1, gt_bin),
+                      'technique2': technique_pred2.argmax(axis=1).reshape(-1, gt_bin),
                       'attention': a,
                       'r_adv': r_adv,                
                       'reconstruction': reconstrut,
@@ -459,7 +465,7 @@ class UNet(nn.Module):
 
       else:
           technique_pred, a = self(spec)
-          technique_pred = technique_pred[:, :232, :].reshape(-1, 10)
+          technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
           if self.training:
               predictions = {
                       'technique': technique_pred,
@@ -476,7 +482,7 @@ class UNet(nn.Module):
           else:
               # testing
               predictions = {
-                      'technique': technique_pred.argmax(axis=1).reshape(-1, 232),
+                      'technique': technique_pred.argmax(axis=1).reshape(-1, gt_bin),
                       'r_adv': r_adv,
                       'attention': a,
                       }                        

@@ -49,7 +49,7 @@ def config():
     alpha = 1
     VAT=True
     XI= 1e-6
-    eps=2
+    eps=1.3 # 2
     reconstruction = True
     batch_size = 8
     train_batch_size = 8
@@ -105,7 +105,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         fig, axs = plt.subplots(2, 2, figsize=(24,8))
         axs = axs.flat
         for idx, i in enumerate(mel.cpu().detach().numpy()):
-            axs[idx].imshow(i.transpose(), cmap='jet', origin='lower')
+            axs[idx].imshow(i.transpose()) # , cmap='jet', origin='lower'
             axs[idx].axis('off')
         fig.tight_layout()
         writer.add_figure('images/Original', fig , ep)
@@ -126,7 +126,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             axs = axs.flat
             for idx, i in enumerate(mel.cpu().detach().numpy()):
                 x_adv = i.transpose()+predictions['r_adv'][idx].t().cpu().numpy()
-                axs[idx].imshow(x_adv, vmax=1, vmin=0, cmap='jet', origin='lower')
+                axs[idx].imshow(x_adv, vmax=1, vmin=0)
                 axs[idx].axis('off')
             fig.tight_layout()
 
@@ -141,7 +141,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 tech_pred = tech_pred.unsqueeze(1).numpy() # (3, 232) -> (3, 1, 232)
 
                 for idx, i in enumerate(tech_pred):
-                    axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
+                    axs[idx].imshow(i, origin='lower', vmax=1, vmin=0)
                     axs[idx].axis('off')
                 fig.tight_layout()
                 writer.add_figure(f'images/{output_key}', fig , ep)
@@ -150,7 +150,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
             axs = axs.flat
             for idx, i in enumerate(predictions['reconstruction'].cpu().detach().numpy().squeeze(1)):
-                axs[idx].imshow(i.transpose(), cmap='jet', origin='lower')
+                axs[idx].imshow(i.transpose())
                 axs[idx].axis('off')
             fig.tight_layout()
             writer.add_figure('images/Reconstruction', fig , ep)                     
@@ -266,7 +266,8 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
                                                                           sequence_length=sequence_length,
                                                                           validation_length=sequence_length,
                                                                           refresh=refresh,
-                                                                          device=device)  
+                                                                          device=device,
+                                                                          audio_type='flac')  
     if VAT:
         unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
 #     supervised_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
