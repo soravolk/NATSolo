@@ -1,5 +1,8 @@
 .ipynb_checkpoints
 Solo
 runs
+checkpoint
 model/__pycache__
 .DS_store
+checkpoint
+model/yolo_exp/yolox/models/yolox_s.pth
