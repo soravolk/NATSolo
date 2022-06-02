@@ -1,4 +1,4 @@
-SAMPLE_RATE = 44100 # 16000
+SAMPLE_RATE = 16000 # 16000
 HOP_LENGTH = SAMPLE_RATE * 32 // 1000
 ONSET_LENGTH = SAMPLE_RATE * 32 // 1000
 OFFSET_LENGTH = SAMPLE_RATE * 32 // 1000
@@ -8,8 +8,8 @@ MIN_MIDI = 21
 MAX_MIDI = 108
 
 N_BINS = 229 # Default using Mel spectrograms
-MEL_FMIN = 30
-MEL_FMAX = SAMPLE_RATE // 2
+MEL_FMIN = 82 # 30
+MEL_FMAX = 5000 # SAMPLE_RATE // 2
 
 # New parameter for Guqin
 # N_BINS = 400 # Default using Mel spectrograms
