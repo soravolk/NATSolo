@@ -17,7 +17,8 @@ MEL_FMAX = SAMPLE_RATE // 2
 # MEL_FMAX = SAMPLE_RATE // 2
 
 
-WINDOW_LENGTH = 2048
+WINDOW_LENGTH = 2048 # Window of audio sequence
+WINDOW_SIZE = 9      # Window of frame of feature 
 
 #DEFAULT_DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
