@@ -1,11 +1,11 @@
 import os
 import sys
 from collections import defaultdict
-
+from mir_eval.util import midi_to_hz
 import numpy as np
 import torch
 from mir_eval.multipitch import evaluate as evaluate_frames
-from mir_eval.transcription import precision_recall_f1_overlap as evaluate_techniques
+from mir_eval.transcription import precision_recall_f1_overlap as evaluate_notes
 from scipy.stats import hmean
 from tqdm import tqdm
 from .convert import *
@@ -32,13 +32,29 @@ def evaluate_prediction(data, model, save_path=None, reconstruction=True):
 
     for val_data in tqdm(data):
         pred, losses, _ = model.run_on_batch(val_data, None, False)
-
+        tech_label = val_data['label'][:,:10].argmax(axis=1) # only one label file
+        note_label = val_data['label'][:,10:].argmax(axis=1)
         for key, loss in losses.items():
             metrics[key].append(loss.item())
 
         for key, value in pred.items():
-            if key in ['technique', 'technique2']:
+            if key in ['tech', 'note']:
                 value.relu_() # value.shape [232, 10]
+
+        ############ evaluate techniques ############
+        # get the confusion matrix
+        correct_tech_labels = tech_label.cpu().numpy()
+        predict_tech_labels = pred['tech'].squeeze(0).cpu().numpy()
+        
+        cm, cm_recall, cm_precision = get_confusion_matrix(correct_tech_labels, predict_tech_labels)
+        # get the recall and precision of techniques
+        for key, value in technique_dict.items():
+            p = cm_precision[key][key]
+            r = cm_recall[key][key]
+            f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
+            metrics[f'metric/{value}/precision'].append(p)
+            metrics[f'metric/{value}/recall'].append(r)
+            metrics[f'metric/{value}/f1'].append(f)
 
         # find the technique timings
         # groundtruth: val_data['technique'].shape [232]
@@ -46,44 +62,39 @@ def evaluate_prediction(data, model, save_path=None, reconstruction=True):
         # get techinique and interval
         # tech_ref, interval_ref = extract_technique(val_data['technique'], gt=True)
         # tech_est, interval_est = extract_technique(pred['technique'].squeeze(0))
-        
-        # get the confusion matrix
-        correct_labels = val_data['technique'].cpu().numpy()
-        predict_labels = pred['technique'].squeeze(0).cpu().numpy()
-        
-        cm, cm_recall, cm_precision = get_confusion_matrix(correct_labels, predict_labels)
-        # get the recall and precision of techniques
-        for key, value in technique_dict.items():
-            p = cm_precision[key][key]
-            r = cm_recall[key][key]
-            f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
-            metrics[f'metric/technique/{value}/precision'].append(p)
-            metrics[f'metric/technique/{value}/recall'].append(r)
-            metrics[f'metric/technique/{value}/f1'].append(f)
 
-        # scaling = HOP_LENGTH / SAMPLE_RATE
+        ############ evaluate notes ############
+        pred['note'].squeeze_(0)
+        p_ref, i_ref = extract_notes(note_label)
+        p_est, i_est = extract_notes(pred['note'])
+
+        scaling = HOP_LENGTH / SAMPLE_RATE
 
         # Converting time steps to seconds and midi number to frequency
-        # interval_ref = (interval_ref * scaling) #[# of techniques, 2(onset, offset)]
-        # interval_est = (interval_est * scaling)
+        i_ref = (i_ref * scaling).reshape(-1, 2)
+        p_ref = np.array([midi_to_hz(MIN_MIDI + midi) for midi in p_ref])
+        i_est = (i_est * scaling).reshape(-1, 2)
+        p_est = np.array([midi_to_hz(MIN_MIDI + midi) for midi in p_est])
+       
+        p, r, f, o = evaluate_notes(i_ref, p_ref, i_est, p_est, offset_ratio=None)
+        metrics['metric/note/precision'].append(p)
+        metrics['metric/note/recall'].append(r)
+        metrics['metric/note/f1'].append(f)
+        metrics['metric/note/overlap'].append(o)     
 
-        # utilize mir_eval(have to shift all technique by 1 because 0 is not allowed)
-        # p, r, f, o = evaluate_techniques(interval_ref, tech_ref, interval_est, tech_est, offset_ratio=None)
-        # metrics['metric/technique/precision'].append(p)
-        # metrics['metric/technique/recall'].append(r)
-        # metrics['metric/technique/f1'].append(f)
-        # metrics['metric/technique/overlap'].append(o)     
+        p, r, f, o = evaluate_notes(i_ref, p_ref, i_est, p_est)
+        metrics['metric/note-with-offsets/precision'].append(p)
+        metrics['metric/note-with-offsets/recall'].append(r)
+        metrics['metric/note-with-offsets/f1'].append(f)
+        metrics['metric/note-with-offsets/overlap'].append(o)
 
-        # p, r, f, o = evaluate_techniques(interval_ref, tech_ref, interval_est, tech_est)
-        # metrics['metric/technique-with-offsets/precision'].append(p)
-        # metrics['metric/technique-with-offsets/recall'].append(r)
-        # metrics['metric/technique-with-offsets/f1'].append(f)
-        # metrics['metric/technique-with-offsets/overlap'].append(o)
+        # may implement frame_metrics later
+
         
         if reconstruction:
-            correct_labels = val_data['technique'].cpu().numpy()
-            predict_labels = pred['technique2'].squeeze(0).cpu().numpy()
-            cm_2, cm_recall_2, cm_precision_2 = get_confusion_matrix(correct_labels, predict_labels)
+            correct_tech_labels = val_data['technique'].cpu().numpy()
+            predict_tech_labels = pred['technique2'].squeeze(0).cpu().numpy()
+            cm_2, cm_recall_2, cm_precision_2 = get_confusion_matrix(correct_tech_labels, predict_tech_labels)
             # get the recall and precision of techniques
             for key, value in technique_dict.items():
                 p = cm_precision_2[key][key]

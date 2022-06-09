@@ -86,3 +86,40 @@ def techniques_to_frames(techniques, intervals, shape):
     time = np.arange(roll.shape[0])
     tehcniques = [roll[t, :].nonzero()[0] for t in time]
     return time, tehcniques
+
+def extract_notes(notes, onset_threshold=0.5, frame_threshold=0.5):
+    """
+    Finds the note timings based on the onsets and frames information
+    Parameters
+    ----------
+    onsets: torch.FloatTensor, shape = [frames, bins]
+    frames: torch.FloatTensor, shape = [frames, bins]
+    velocity: torch.FloatTensor, shape = [frames, bins]
+    onset_threshold: float
+    frame_threshold: float
+    Returns
+    -------
+    pitches: np.ndarray of bin_indices
+    intervals: np.ndarray of rows containing (onset_index, offset_index)
+    velocities: np.ndarray of velocity values
+    """
+    notes = notes.cpu().to(torch.uint8)
+
+    pitches = []
+    intervals = []
+
+    # get the interval of every note
+    i = 0
+    while i < len(notes):
+        note = notes[i]
+        onset = i
+        offset = i
+
+        while offset < len(notes) and notes[offset] == note:
+            offset += 1
+        # After knowing where does the note start and end, we can return the note information
+        pitches.append(note)
+        intervals.append([onset, offset - 0.1]) # offset - 1
+        i = offset
+
+    return np.array(pitches), np.array(intervals)

@@ -59,9 +59,9 @@ def config():
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 8000 # 20000       
-    step_size_up = 100    
-    max_lr = 1e-4 
+    epoches = 8000 # 20000
+    step_size_up = 100
+    max_lr = 1e-4
     learning_rate = 1e-3
     learning_rate_decay_steps = 1000
     learning_rate_decay_rate = 0.98
@@ -96,10 +96,10 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             mertics, cm_dict = evaluate_prediction(valid_set, model, reconstruction=reconstruction)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
-                    _, category, tech, name = key.split('/')
+                    _, category, name = key.split('/')
                     # show metrics on terminal
-                    print(f'{category:>32} {tech:12} {name:13}: {np.mean(values):.3f} ± {np.std(values):.3f}')
-                    if ('precision' in name or 'recall' in name or 'f1' in name) and 'chroma' not in name:
+                    print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')
+                    if 'precision' in name or 'recall' in name or 'f1' in name:
                         writer.add_scalar(key, np.mean(values), global_step=ep)
 
         # test on labelled training set
@@ -130,11 +130,11 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         fig, axs = plt.subplots(2, 2, figsize=(24,4))
         axs = axs.flat
         # batch_visualize['technique'].shape: [3, 232]
-        for idx, i in enumerate(batch_visualize['technique'].unsqueeze(1).cpu().numpy()):
-            axs[idx].imshow(i, origin='lower', vmax=1, vmin=0)
-            axs[idx].axis('off')
-        fig.tight_layout()
-        writer.add_figure('images/Label', fig , ep)
+        # for idx, i in enumerate(batch_visualize['technique'].unsqueeze(1).cpu().numpy()):
+        #     axs[idx].imshow(i, origin='lower', vmax=1, vmin=0)
+        #     axs[idx].axis('off')
+        # fig.tight_layout()
+        # writer.add_figure('images/Label', fig , ep)
         
         # when the spectrogram adds adversarial direction
         if predictions['r_adv'] is not None: 
@@ -149,18 +149,18 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             writer.add_figure('images/Spec_adv', fig , ep)           
     # Show the training result every period of epoch
     if ep%logging_freq == 0:
-        for output_key in ['technique', 'technique2']:
-            if output_key in predictions.keys():
-                fig, axs = plt.subplots(2, 2, figsize=(24,4))
-                axs = axs.flat
-                tech_pred = predictions[output_key].detach().cpu()
-                tech_pred = tech_pred.unsqueeze(1).numpy() # (3, 232) -> (3, 1, 232)
+        # for output_key in ['technique', 'technique2']:
+        #     if output_key in predictions.keys():
+        #         fig, axs = plt.subplots(2, 2, figsize=(24,4))
+        #         axs = axs.flat
+        #         tech_pred = predictions[output_key].detach().cpu()
+        #         tech_pred = tech_pred.unsqueeze(1).numpy() # (3, 232) -> (3, 1, 232)
 
-                for idx, i in enumerate(tech_pred):
-                    axs[idx].imshow(i, origin='lower', vmax=1, vmin=0)
-                    axs[idx].axis('off')
-                fig.tight_layout()
-                writer.add_figure(f'images/{output_key}', fig , ep)
+        #         for idx, i in enumerate(tech_pred):
+        #             axs[idx].imshow(i, origin='lower', vmax=1, vmin=0)
+        #             axs[idx].axis('off')
+        #         fig.tight_layout()
+        #         writer.add_figure(f'images/{output_key}', fig , ep)
         
         for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
             if output_key in cm_dict.keys():
@@ -196,7 +196,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             outer = gridspec.GridSpec(2, 4, wspace=0.2, hspace=0.2)
             fig.suptitle("Visualizing Attention Heads", size=20)
             attentions = predictions['attention']
-
+            tech_note_pred = predictions['tech_note'].detach().cpu().unsqueeze(1).numpy()
             for i in range(n_heads):
                 # Creating the grid for 4 samples
                 inner = gridspec.GridSpecFromSubplotSpec(2, 2,
@@ -218,7 +218,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     axvert = divider.append_axes('left', size='30%', pad=0.5)
                     axhoriz = divider.append_axes('top', size='20%', pad=0.25)
                     axhoriz.imshow(attended_features.t().cpu().detach(), aspect='auto', origin='lower', cmap='jet')
-                    axvert.imshow(tech_pred[idx], aspect='auto')
+                    axvert.imshow(tech_note_pred[idx], aspect='auto')
 
                     # changing axis for the center fig
                     axCenter.set_xticks([])
@@ -234,7 +234,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     axvert.margins(y=0)
         writer.add_figure('images/Attention', fig , ep) 
 
-def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, class_weights=None):
+def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, tech_weights=None):
     model.train()
     batch_size = l_loader.batch_size
     total_loss = 0
@@ -246,10 +246,10 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
         batch_l = next(l_loader)
         
         if (ep < VAT_start) or (VAT==False):
-            predictions, losses, _ = model.run_on_batch(batch_l, None, False, class_weights)
+            predictions, losses, _ = model.run_on_batch(batch_l, None, False)
         else:
             batch_ul = next(ul_loader)
-            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT, class_weights)
+            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT)
 
         loss = 0
         # tweak the loss
@@ -284,8 +284,8 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
           clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
           reconstruction): 
     print_config(ex.current_run)
-
-    supervised_set, unsupervised_set, valid_set, test_set = prepare_VAT_dataset(
+    # flac for 16K audio
+    supervised_set, unsupervised_set, valid_set = prepare_VAT_dataset(
                                                                           sequence_length=sequence_length,
                                                                           validation_length=sequence_length,
                                                                           refresh=refresh,
@@ -296,13 +296,14 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 #     supervised_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
 #                                                                      generator=torch.Generator().manual_seed(42))
     
-    # get weight for BCE loss
-    class_weights = compute_dataset_weight(device)
+    # get weight of tech label for BCE loss
+    # tech_weights = compute_dataset_weight(device)
+    # not consider the weight of note here
 
     print("supervised_set: ", len(supervised_set))
     print("unsupervised_set: ", len(unsupervised_set))
     print("valid_set: ", len(valid_set))
-    print("test_set: ", len(test_set))
+    # print("test_set: ", len(test_set))
     supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(valid_set, val_batch_size, shuffle=False, drop_last=True)
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
@@ -328,10 +329,10 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     for ep in tqdm(range(1, epoches+1)):
         if VAT==True:
             predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, class_weights)
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)
         else:
             predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, class_weights)            
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)            
         loss = sum(losses.values())
 
         # Logging results to tensorboard
