@@ -21,7 +21,7 @@ from itertools import cycle
 
 from model.UNet import UNet
 from model.dataset import prepare_VAT_dataset, compute_dataset_weight
-from model.utils import summary, flatten_attention
+from model.utils import summary, flatten_attention, plot_confusion_matrix
 from model.convert import *
 from model.evaluate_functions import *
 ex = Experiment('train_original')
@@ -50,11 +50,11 @@ def config():
     VAT=True
     XI= 1e-6
     eps=1.3 # 2
-    reconstruction = True
+    reconstruction = False
     batch_size = 8
     train_batch_size = 8
     val_batch_size = 3
-    sequence_length = 327680
+    sequence_length = 327680 // 2
     if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
         batch_size //= 2
         sequence_length //= 2
@@ -75,17 +75,30 @@ def config():
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                     VAT, VAT_start, reconstruction):
+    technique_dict = {
+        0: 'no tech',
+        1: 'normal', 
+        2: 'slide',
+        3: 'bend',
+        4: 'trill',
+        5: 'mute',
+        6: 'pull',
+        7: 'harmonic',
+        8: 'hammer',
+        9: 'tap'
+    }
     # log various result from the validation audio
     model.eval()
 
-    if (ep)%logging_freq==0 or ep==1:
+    if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            for key, values in evaluate_prediction(valid_set, model, reconstruction=reconstruction).items():
+            mertics, cm_dict = evaluate_prediction(valid_set, model, reconstruction=reconstruction)
+            for key, values in mertics.items():
                 if key.startswith('metric/'):
-                    _, category, name = key.split('/')
+                    _, category, tech, name = key.split('/')
                     # show metrics on terminal
-                    print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')
+                    print(f'{category:>32} {tech:12} {name:13}: {np.mean(values):.3f} ± {np.std(values):.3f}')
                     if ('precision' in name or 'recall' in name or 'f1' in name) and 'chroma' not in name:
                         writer.add_scalar(key, np.mean(values), global_step=ep)
 
@@ -99,6 +112,9 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     # visualized validation audio
     predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT)
     loss = sum(losses.values())
+
+    mel = mel[:,0,:,:]
+    
     # Show the original transcription and spectrograms
     if ep==1:
         # spectrogram
@@ -125,7 +141,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
             axs = axs.flat
             for idx, i in enumerate(mel.cpu().detach().numpy()):
-                x_adv = i.transpose()+predictions['r_adv'][idx].t().cpu().numpy()
+                x_adv = i.transpose()+predictions['r_adv'][idx][0].t().cpu().numpy()
                 axs[idx].imshow(x_adv, vmax=1, vmin=0)
                 axs[idx].axis('off')
             fig.tight_layout()
@@ -145,7 +161,14 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     axs[idx].axis('off')
                 fig.tight_layout()
                 writer.add_figure(f'images/{output_key}', fig , ep)
-           
+        
+        for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
+            if output_key in cm_dict.keys():
+                if output_key in ['cm', 'cm_2']:
+                    plot_confusion_matrix(cm_dict[output_key], technique_dict, writer, ep, output_key, f'images/{output_key}', 'd', 10)
+                else:
+                    plot_confusion_matrix(cm_dict[output_key], technique_dict, writer, ep, output_key, f'images/{output_key}', '.2f', 6)
+
         if 'reconstruction' in predictions.keys():
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
             axs = axs.flat
@@ -160,7 +183,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
             axs = axs.flat
             for idx, i in enumerate(mel.cpu().detach().numpy()):
-                x_adv = i.transpose()+predictions['r_adv'][idx].t().cpu().numpy()
+                x_adv = i.transpose()+predictions['r_adv'][idx][0].t().cpu().numpy()
                 axs[idx].imshow(x_adv, vmax=1, vmin=0, cmap='jet', origin='lower')
                 axs[idx].axis('off')
             fig.tight_layout()

@@ -1,5 +1,30 @@
+from sklearn.metrics import confusion_matrix
 import numpy as np
 import torch
+
+def get_confusion_matrix(correct_labels, predict_labels):
+    labels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
+
+    # recall
+    cm_recall = []
+    for i, row in enumerate(cm):
+        total = row.sum()
+        for j in range(cm.shape[0]):
+            cm_recall.append(row[j]/total if (row[j] != 0 or total != 0) else 0)
+    cm_recall = np.reshape(cm_recall, cm.shape)
+
+    # precision
+    cm_precision = []
+    for j, col in enumerate(cm.T):
+        total = col.sum()
+        for i in range(cm.shape[0]):
+            cm_precision.append(col[i] / total if (col[j] != 0 or total != 0) else 0)
+    cm_precision = np.reshape(cm_precision, cm.shape).T
+
+    return cm, cm_recall, cm_precision
+
 
 def extract_technique(tech, gt=False):
     """

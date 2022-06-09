@@ -124,8 +124,8 @@ class block(nn.Module):
 class Encoder(nn.Module):
     def __init__(self,ds_ksize, ds_stride):
         super(Encoder, self).__init__()
-
-        self.block1 = block(1,16,(3,3),(1,1),ds_ksize, ds_stride)
+        # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
+        self.block1 = block(2,16,(3,3),(1,1),ds_ksize, ds_stride)
         self.block2 = block(16,32,(3,3),(1,1),ds_ksize, ds_stride)
         self.block3 = block(32,64,(3,3),(1,1),ds_ksize, ds_stride)
         self.block4 = block(64,128,(3,3),(1,1),ds_ksize, ds_stride)
@@ -210,7 +210,8 @@ class Roll2Spec(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
         self.Unet2_encoder = Encoder(ds_ksize, ds_stride)
-        self.Unet2_decoder = Decoder(ds_ksize, ds_stride, 1)   
+        # WARNING: change the output from 1 to 2 to test hop 256 and 512
+        self.Unet2_decoder = Decoder(ds_ksize, ds_stride, 2)   
         self.lstm2 = MutliHeadAttention1D(10, N_BINS*complexity, 31, position=True, groups=4)            
         self.linear2 = nn.Linear(N_BINS*complexity, N_BINS)         
         
@@ -323,7 +324,10 @@ class UNet(nn.Module):
                                                       n_bins=N_BINS, fmin=27.5, 
                                                       bins_per_octave=12*r, trainable=False)
         elif spec == 'Mel':
-            self.spectrogram = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=N_FFT, n_mels=N_BINS,
+            self.spectrogram_1 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=768, n_mels=N_BINS,
+                                                          hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
+                                                          trainable_mel=False, trainable_STFT=False)
+            self.spectrogram_2 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=1536, n_mels=N_BINS,
                                                           hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
                                                           trainable_mel=False, trainable_STFT=False)
         elif spec == 'CFP':
@@ -355,6 +359,7 @@ class UNet(nn.Module):
 
         if self.reconstruction:     
             # U-net 2
+            print("reconstruction")
             reconstruction, a_reconstruct = self.reconstructor(technique)
             # Applying U-net 1 to the reconstructed spectrograms
             technique2, a_2 = self.transcriber(reconstruction)
@@ -378,12 +383,20 @@ class UNet(nn.Module):
             # audio_ul is already mono
             audio_ul.unsqueeze_(-1)
           audio_ul = audio_ul[:, :, 0]
-          spec = self.spectrogram(audio_ul) # x = torch.rand(8,229, 640)
-          if self.log:
-            spec = torch.log(spec + 1e-5)
-          spec = self.normalize.transform(spec)
-          spec = spec.transpose(-1,-2).unsqueeze(1)
 
+          # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
+          spec_1 = self.spectrogram_1(audio_ul) # x = torch.rand(8,229, 640)
+          spec_2 = self.spectrogram_2(audio_ul)
+          if self.log:
+            spec_1 = torch.log(spec_1 + 1e-5)
+            spec_2 = torch.log(spec_2 + 1e-5)
+          spec_1 = self.normalize.transform(spec_1)
+          spec_2 = self.normalize.transform(spec_2)
+
+          spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # torch.rand(8, 1, 229, 640)
+          spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
+          
+          spec = torch.cat((spec_1, spec_2), 1) # torch.rand(8, 2, 229, 640)
           lds_ul, _, r_norm_ul = self.vat_loss(self, spec)
       else:
           # lds_ul = torch.tensor(0.)
@@ -402,17 +415,22 @@ class UNet(nn.Module):
         if audio.dim() == 3:
           # batch 
           audio = audio[:, :, 0]
-        
-      spec = self.spectrogram(audio) # x = torch.rand(8, 229, 640)
+
+      # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
+      spec_1 = self.spectrogram_1(audio) # x = torch.rand(8, 229, 640)
+      spec_2 = self.spectrogram_2(audio) # x = torch.rand(8, 229, 640)
       # log compression
       if self.log:
-          spec = torch.log(spec + 1e-5)
-          
+          spec_1 = torch.log(spec_1 + 1e-5)
+          spec_2 = torch.log(spec_2 + 1e-5)
       # Normalizing spectrograms
-      spec = self.normalize.transform(spec)
-      
+      spec_1 = self.normalize.transform(spec_1)
+      spec_2 = self.normalize.transform(spec_2)
       # swap spec bins with timesteps so that it fits attention later 
-      spec = spec.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+      spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+      spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
+      spec = torch.cat((spec_1, spec_2), 1)
+
       # do VAT for labelled audio
       if VAT:
           lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
@@ -487,7 +505,7 @@ class UNet(nn.Module):
                       'attention': a,
                       }                        
               losses = {
-                      'loss/test_technique': criterion(predictions['technique'], technique),
+                      'loss/test_technique': criterion(technique_pred, technique),
                       'loss/test_LDS_l': lds_l['technique'],
                       'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                       }                            

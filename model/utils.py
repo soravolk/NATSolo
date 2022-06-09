@@ -1,10 +1,11 @@
 import sys
 from functools import reduce
-
+import numpy as np
 import torch
 from PIL import Image
 from torch.nn.modules.module import _addindent
-
+import itertools
+import matplotlib.pyplot as plt
 
 def cycle(iterable):
     while True:
@@ -56,6 +57,46 @@ def summary(model, file=sys.stdout):
         file.flush()
 
     return count
+
+def plot_confusion_matrix(cm, technique_dict, writer, ep, title='Prediction', tensor_name = 'MyFigure/image', dtype='d', fontsize=20):
+    ''' 
+    Parameters:
+        labels                          : This is a lit of labels which will be used to display the axix labels
+        title='Confusion matrix'        : Title for your matrix
+        tensor_name = 'MyFigure/image'  : Name for the output summay tensor
+
+    Returns:
+        summary: TensorFlow summary 
+
+    Other itema to note:
+        - Depending on the number of category and the data , you may have to modify the figzie, font sizes etc. 
+        - Currently, some of the ticks dont line up due to rotations.
+    '''
+    labels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    np.set_printoptions(precision=2)
+    fig, ax = plt.subplots(figsize=(5, 5), dpi=180, facecolor='w', edgecolor='k')
+
+    im = ax.imshow(cm, cmap='Oranges')
+    ax.set_title(title)
+    fig.colorbar(im)
+
+    classes = [technique_dict[x] for x in labels]
+
+    tick_marks = np.arange(len(classes))
+
+    # ax = plt.gca()
+    ax.set_xlabel('Predicted Technique', fontsize=6)
+    ax.set_xticks(tick_marks)
+    ax.set_xticklabels(classes, fontsize=5, rotation=45,  ha='center')
+
+    ax.set_ylabel('True Technique', fontsize=6)
+    ax.set_yticks(tick_marks)
+    ax.set_yticklabels(classes, fontsize=5, va ='center')
+
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        ax.text(j, i, format(cm[i, j], dtype) if cm[i,j]!=0 else '.', horizontalalignment="center", fontsize=fontsize, verticalalignment='center', color= "white")
+    fig.set_tight_layout(True)
+    writer.add_figure(tensor_name, fig , ep)
 
 def flatten_attention(a, w_size=31):
     w_size = (w_size-1)//2 # make it half window size
