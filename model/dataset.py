@@ -52,11 +52,11 @@ class AudioDataset(Dataset):
               ####### why it should be float?? #######
               result['label'] = data['label'][step_begin:step_end].to(self.device).float()
 
+            result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
         else:
-            result['audio'] = data['audio'].to(self.device)
-            result['label'] = data['label'].to(self.device).float()
+            # result['audio'] = data['audio'].to(self.device)
+            result['tech_label'] = data['tech_label'].to(self.device).float()
 
-        result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
 
         return result
 
@@ -150,13 +150,13 @@ class AudioDataset(Dataset):
 
             note_label[left:right] = note
         
-        # concat tech and note label
+        ##### concat tech and note label #####
         # % 52 because the lowest note is 52
-        note_label = F.one_hot(note_label.to(torch.int64) % 52, num_classes=49)
-        tech_label = F.one_hot(tech_label.to(torch.int64), num_classes=10)
-        label = torch.cat((tech_label, note_label), 1)
+        note_label_onehot = F.one_hot(note_label.to(torch.int64) % 52, num_classes=49)
+        tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=10)
+        label = torch.cat((tech_label_onehot, note_label_onehot), 1)
 
-        data = dict(path=audio_path, audio=audio, label=label)
+        data = dict(path=audio_path, audio=audio, tech_label=tech_label, label=label)
         torch.save(data, saved_data_path)
         return data
 
@@ -221,9 +221,11 @@ def compute_dataset_weight(device):
 
     y = []
     for data in train_set:
-        print('data.technique.shape', data['technique'].shape)
-        y.extend(data['technique'].detach().cpu().numpy())
-    class_weights = compute_class_weight('balanced', np.unique(y), y)
-    class_weights = torch.tensor(class_weights, dtype=torch.float).to(device)
-    
+        print('data.tech_label.shape', data['tech_label'].shape)
+        y.extend(data['tech_label'].detach().cpu().numpy())
+    tech_weights = compute_class_weight('balanced', np.unique(y), y)
+    tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
+    note_weights = torch.ones(49, dtype=torch.float).to(device)
+    class_weights = torch.cat((tech_weights, note_weights), 0)
+
     return class_weights

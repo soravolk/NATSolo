@@ -74,7 +74,7 @@ def config():
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                    VAT, VAT_start, reconstruction):
+                    VAT, VAT_start, reconstruction, tech_weights=None):
     technique_dict = {
         0: 'no tech',
         1: 'normal', 
@@ -93,7 +93,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics, cm_dict = evaluate_prediction(valid_set, model, reconstruction=reconstruction)
+            mertics, cm_dict = evaluate_prediction(valid_set, model, reconstruction=reconstruction, tech_weights=tech_weights)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -104,13 +104,13 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
 
         # test on labelled training set
         model.eval()
-        test_losses = eval_model(model, ep, supervised_loader, VAT_start, VAT)
+        test_losses = eval_model(model, ep, supervised_loader, VAT_start, VAT, tech_weights)
         for key, values in test_losses.items():
             if key.startswith('loss/'):
                 writer.add_scalar(key, np.mean(values), global_step=ep)
 
     # visualized validation audio
-    predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT)
+    predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT, tech_weights)
     loss = sum(losses.values())
 
     mel = mel[:,0,:,:]
@@ -246,10 +246,10 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
         batch_l = next(l_loader)
         
         if (ep < VAT_start) or (VAT==False):
-            predictions, losses, _ = model.run_on_batch(batch_l, None, False)
+            predictions, losses, _ = model.run_on_batch(batch_l, None, False, tech_weights)
         else:
             batch_ul = next(ul_loader)
-            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT)
+            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT, tech_weights)
 
         loss = 0
         # tweak the loss
@@ -297,7 +297,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight of tech label for BCE loss
-    # tech_weights = compute_dataset_weight(device)
+    tech_weights = compute_dataset_weight(device)
     # not consider the weight of note here
 
     print("supervised_set: ", len(supervised_set))
@@ -329,10 +329,10 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     for ep in tqdm(range(1, epoches+1)):
         if VAT==True:
             predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, tech_weights)
         else:
             predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)            
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, tech_weights)            
         loss = sum(losses.values())
 
         # Logging results to tensorboard
@@ -341,11 +341,11 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         if ep < VAT_start or VAT == False:
             tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                            False, VAT_start, reconstruction)
+                            False, VAT_start, reconstruction, tech_weights)
         else:
             tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                            True, VAT_start, reconstruction)            
+                            True, VAT_start, reconstruction, tech_weights)            
 
         # Saving model
         if (ep)%saving_freq == 0:

@@ -14,7 +14,7 @@ from .utils import save_pianoroll
 
 eps = sys.float_info.epsilon    
 
-def evaluate_prediction(data, model, save_path=None, reconstruction=True):
+def evaluate_prediction(data, model, save_path=None, reconstruction=True, tech_weights=None):
     technique_dict = {
         0: 'no tech',
         1: 'normal', 
@@ -31,7 +31,7 @@ def evaluate_prediction(data, model, save_path=None, reconstruction=True):
     metrics = defaultdict(list) # a safe dict
 
     for val_data in tqdm(data):
-        pred, losses, _ = model.run_on_batch(val_data, None, False)
+        pred, losses, _ = model.run_on_batch(val_data, None, False, tech_weights)
         tech_label = val_data['label'][:,:10].argmax(axis=1) # only one label file
         note_label = val_data['label'][:,10:].argmax(axis=1)
         for key, loss in losses.items():
@@ -142,16 +142,16 @@ def evaluate_prediction(data, model, save_path=None, reconstruction=True):
             save_pianoroll(pred_path, pred['technique'])
     return metrics, cm_dict
 
-def eval_model(model, ep, loader, VAT_start=0, VAT=False):
+def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):
     model.eval()
     batch_size = loader.batch_size
     metrics = defaultdict(list)
     i = 0 
     for batch in loader:
         if ep < VAT_start or VAT==False:
-            predictions, losses, _ = model.run_on_batch(batch, None, False)
+            predictions, losses, _ = model.run_on_batch(batch, None, False, tech_weights)
         else:
-            predictions, losses, _ = model.run_on_batch(batch, None, True)
+            predictions, losses, _ = model.run_on_batch(batch, None, True, tech_weights)
 
         for key, loss in losses.items():
             metrics[key].append(loss.item())

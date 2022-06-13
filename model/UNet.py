@@ -377,7 +377,7 @@ class UNet(nn.Module):
       # technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
       # use the weight for the unbalanced tech label
       # tech_criterion = nn.CrossEntropyLoss(weight=tech_weights, reduction='mean')
-      
+
       #####################for unlabelled audio###########################
       # do VAT for unlabelled audio
       if batch_ul:
@@ -490,7 +490,6 @@ class UNet(nn.Module):
           tech_note_pred = tech_note_pred[:, :gt_bin, :]
           if self.training:
               predictions = {
-                  ############# do we have to separate the prediction of tech and note? ###################
                       'tech_note': tech_note_pred.reshape(-1, 59),
                       'tech': tech_note_pred[:,:,:10].reshape(-1, 10),
                       'note': tech_note_pred[:,:,10:].reshape(-1, 49),
@@ -499,7 +498,7 @@ class UNet(nn.Module):
                       }
               losses = {
                       # 'loss/train_tech_note': tech_criterion(predictions['tech_note'], technique),
-                      'loss/train_tech_note': F.binary_cross_entropy(tech_note_pred, label),
+                      'loss/train_tech_note': F.binary_cross_entropy(tech_note_pred, label, weight=tech_weights),
                       'loss/train_LDS_l': lds_l,
                       'loss/train_LDS_ul': lds_ul,
                       'loss/train_r_norm_l': r_norm_l.abs().mean(),
@@ -516,7 +515,7 @@ class UNet(nn.Module):
                       }                        
               losses = {
                       # 'loss/test_technique': tech_criterion(technique_pred, technique),
-                      'loss/test_tech_note': F.binary_cross_entropy(tech_note_pred, label),
+                      'loss/test_tech_note': F.binary_cross_entropy(tech_note_pred, label, weight=tech_weights),
                       'loss/test_LDS_l': lds_l,
                       'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                       }                            
