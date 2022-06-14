@@ -221,7 +221,6 @@ def compute_dataset_weight(device):
 
     y = []
     for data in train_set:
-        print('data.tech_label.shape', data['tech_label'].shape)
         y.extend(data['tech_label'].detach().cpu().numpy())
     tech_weights = compute_class_weight('balanced', np.unique(y), y)
     tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)

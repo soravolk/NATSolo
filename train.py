@@ -93,7 +93,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics, cm_dict = evaluate_prediction(valid_set, model, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics, cm_dict, transcriptions = evaluate_prediction(valid_set, model, ep=ep, reconstruction=reconstruction, tech_weights=tech_weights)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -136,6 +136,36 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         # fig.tight_layout()
         # writer.add_figure('images/Label', fig , ep)
         
+        # plot transcription
+        fig = plt.figure(constrained_layout=True, figsize=(48,20))
+        subfigs = fig.subfigures(2, 2)
+        subfigs = subfigs.flat
+        for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'])):
+            subfigs[i].suptitle(f'Transcription {i}')
+            ax = subfigs[i].subplots(2,1)
+            ax = ax.flat
+            # note transcription
+            ax[0].set_title('Note')
+            ax[0].set_xlabel('time (t)')
+            ax[0].set_ylabel('midi note numbers')
+            for j, t in enumerate(x):
+                x_val = np.arange(t[0], t[1], 0.1)
+                y_val = np.full(len(x_val), y[j])
+                ax[0].plot(x_val, y_val)
+                ax[0].vlines(t[0], ymin=52, ymax=100, linestyles='dotted')
+            # techique transcription
+            ax[1].set_title('Technique')
+            ax[1].set_xlabel('time (t)')
+            ax[1].set_ylabel('midi note numbers')
+            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ['no_tech', 'normal', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
+            for j, t in enumerate(x_tech):
+                x_val = np.arange(t[0], t[1], 0.1)
+                y_val = np.full(len(x_val), y_tech[j])
+                ax[1].plot(x_val, y_val)
+                ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
+        writer.add_figure('transcription/ground_truth', fig, ep)
+            
+
         # when the spectrogram adds adversarial direction
         if predictions['r_adv'] is not None: 
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
@@ -161,6 +191,34 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         #             axs[idx].axis('off')
         #         fig.tight_layout()
         #         writer.add_figure(f'images/{output_key}', fig , ep)
+        # plot transcription
+        fig = plt.figure(constrained_layout=True, figsize=(48,20))
+        subfigs = fig.subfigures(2, 2)
+        subfigs = subfigs.flat
+        for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'])):
+            subfigs[i].suptitle(f'Transcription {i}')
+            ax = subfigs[i].subplots(2,1)
+            ax = ax.flat
+            # note transcription
+            ax[0].set_title('Note')
+            ax[0].set_xlabel('time (t)')
+            ax[0].set_ylabel('midi note numbers')
+            for j, t in enumerate(x):
+                x_val = np.arange(t[0], t[1], 0.1)
+                y_val = np.full(len(x_val), y[j])
+                ax[0].plot(x_val, y_val)
+                ax[0].vlines(t[0], ymin=52, ymax=100, linestyles='dotted')
+            # techique transcription
+            ax[1].set_title('Technique')
+            ax[1].set_xlabel('time (t)')
+            ax[1].set_ylabel('midi note numbers')
+            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ['no_tech', 'normal', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
+            for j, t in enumerate(x_tech):
+                x_val = np.arange(t[0], t[1], 0.1)
+                y_val = np.full(len(x_val), y_tech[j])
+                ax[1].plot(x_val, y_val)
+                ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
+        writer.add_figure('transcription/prediction', fig, ep)
         
         for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
             if output_key in cm_dict.keys():

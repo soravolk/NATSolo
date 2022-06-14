@@ -26,7 +26,7 @@ def get_confusion_matrix(correct_labels, predict_labels):
     return cm, cm_recall, cm_precision
 
 
-def extract_technique(tech, gt=False):
+def extract_technique(tech):
     """
     Finds the note timings based on the onsets and tech information
     Parameters
@@ -42,7 +42,7 @@ def extract_technique(tech, gt=False):
     # onset_diff = torch.cat([onsets[:1, :], onsets[1:, :] - onsets[:-1, :]], dim=0) == 1 # Make sure the activation is only 1 time-step
     
     # convert from label 0 - 9 to 1 - 10 for mir_eval by adding 1
-    tech = tech.cpu().to(torch.uint8) # float
+    tech = tech.to(torch.int8).cpu() # float
 
     techniques = []
     intervals = []
@@ -101,7 +101,7 @@ def extract_notes(notes, onset_threshold=0.5, frame_threshold=0.5):
     intervals: np.ndarray of rows containing (onset_index, offset_index)
     velocities: np.ndarray of velocity values
     """
-    notes = notes.cpu().to(torch.uint8)
+    notes = notes.to(torch.int8).cpu()
 
     pitches = []
     intervals = []
