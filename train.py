@@ -281,7 +281,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     print("valid_set: ", len(valid_set))
     print("test_set: ", len(test_set))
     supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(valid_set, val_batch_size, shuffle=False, drop_last=True)
+    val_loader = DataLoader(valid_set, 1, shuffle=False, drop_last=True) # 4 -> 1
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
 
     # model setting
