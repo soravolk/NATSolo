@@ -1,5 +1,7 @@
 import os
 import torch
+import importlib
+import argparse
 from datetime import datetime
 import pickle
 
@@ -18,59 +20,13 @@ from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm
 from itertools import cycle
 
-from model.UNet_CFP import UNet_CFP
+from lib.config import config, update_config, infer_exp_id
 from model.dataset import prepare_CFP_dataset, compute_dataset_weight, FeatureDataset
 from model.utils import summary, flatten_attention
 from model.convert import *
 from model.evaluate_functions import *
-ex = Experiment('train_original')
+# ex = Experiment('train_original')
 
-# parameters for the network
-ds_ksize, ds_stride = (2,2),(2,2)
-mode = 'imagewise'
-sparsity = 2
-output_channel = 2
-logging_freq = 100
-saving_freq = 200
-
-
-@ex.config
-def config():
-    root = 'runs'
-    device = 'cuda:0'
-    log = True
-    w_size = 31
-    spec = 'Mel'
-    resume_iteration = None
-    train_on = 'Solo'
-    n_heads=4
-    iteration = 10
-    VAT_start = 0
-    alpha = 1
-    VAT=False
-    XI= 1e-6
-    eps=2
-    reconstruction = True
-    batch_size = 8
-    train_batch_size = 8
-    val_batch_size = 3
-    sequence_length = 327680
-    if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
-        batch_size //= 2
-        sequence_length //= 2
-        print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 200        
-    step_size_up = 100    
-    max_lr = 1e-4 
-    learning_rate = 1e-3   
-    learning_rate_decay_steps = 1000
-    learning_rate_decay_rate = 0.98
-    clip_gradient_norm = 3
-    validation_length = sequence_length
-    refresh = False
-    logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-        
-    ex.observers.append(FileStorageObserver.create(logdir)) # saving source code
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -222,7 +178,7 @@ def train_VAT_model(model, iteration, ep, bs, l_loader, ul_loader, optimizer, sc
         optimizer.zero_grad()
         batch_l = next(l_loader)
         feat = batch_l['feature']
-        frame_loader = DataLoader(FeatureDataset(feat, k=WINDOW_SIZE), bs, shuffle=True, drop_last=True)
+        frame_loader = DataLoader(FeatureDataset(feat), bs, shuffle=True, drop_last=True)
         if (ep < VAT_start) or (VAT==False):
             predictions, losses, _ = model.run_on_batch(batch_l, None, False, frame_loader)
         else:
@@ -257,24 +213,24 @@ def train_VAT_model(model, iteration, ep, bs, l_loader, ul_loader, optimizer, sc
     print(f'Train Epoch: {ep}\tLoss: {total_loss/iteration:.6f}')
     return predictions, losses, optimizer
 
-@ex.automain
-def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size,
-          learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, alpha,
-          clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
-          reconstruction): 
-    print_config(ex.current_run)
+def train(logdir, model_class, device, log, resume_iteration, VAT, reconstruction, epoches, iteration, batch_size, learning_rate,
+            learning_rate_decay_steps, learning_rate_decay_rate, clip_gradient_norm, refresh, sequence_length, 
+            **model_kwargs):
 
+    locals().update(model_kwargs)
     supervised_set, unsupervised_set, valid_set, test_set = prepare_CFP_dataset(
                                                                           sequence_length=sequence_length,
                                                                           validation_length=sequence_length,
                                                                           refresh=refresh,
-                                                                          device=device)  
+                                                                          device=device, 
+                                                                          audio_type='flac')  
     if VAT:
         unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
 #     supervised_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight for BCE loss
+    import pdb ; pdb.set_trace()
     class_weights = compute_dataset_weight(device)
     
     print("supervised_set: ", len(supervised_set))
@@ -286,8 +242,8 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
 
     ds_ksize, ds_stride = (2,2),(2,2) 
-    model = UNet_CFP(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
-                     mode=mode, spec=spec, device=device, XI=XI, eps=eps)
+    model = model_class(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
+                     mode=mode, device=device, XI=XI, eps=eps)
     model.to(device)    
     if resume_iteration is None:  
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
@@ -330,6 +286,23 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         
         for key, value in {**losses}.items():
             writer.add_scalar(key, value.item(), global_step=ep) 
+
+if __name__ == '__main__':
+
+    # Parse args & config
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--cfg', required=True)
+    parser.add_argument('opts',
+                        help='Modify config options using the command-line',
+                        default=None, nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    update_config(config, args) 
+
+    model_file = importlib.import_module(config.model.file)
+    model_class = getattr(model_file, config.model.modelclass)
+    logdir = f'{config.root}/'+ datetime.now().strftime('%y%m%d-%H%M%S')
+    train(logdir, model_class, config.device, config.log, config.resume_iteration, config.model.VAT, config.model.reconstruction,
+          **config.training, **config.dataset.common_kwargs, **config.model.kwargs)
 
     """
     # Evaluating model performance on the full MAPS songs in the test split     
