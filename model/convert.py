@@ -1,7 +1,32 @@
+from sklearn.metrics import confusion_matrix
 import numpy as np
 import torch
 
-def extract_technique(tech, gt=False):
+def get_confusion_matrix(correct_labels, predict_labels):
+    labels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
+
+    # recall
+    cm_recall = []
+    for i, row in enumerate(cm):
+        total = row.sum()
+        for j in range(cm.shape[0]):
+            cm_recall.append(row[j]/total if (row[j] != 0 or total != 0) else 0)
+    cm_recall = np.reshape(cm_recall, cm.shape)
+
+    # precision
+    cm_precision = []
+    for j, col in enumerate(cm.T):
+        total = col.sum()
+        for i in range(cm.shape[0]):
+            cm_precision.append(col[i] / total if (col[j] != 0 or total != 0) else 0)
+    cm_precision = np.reshape(cm_precision, cm.shape).T
+
+    return cm, cm_recall, cm_precision
+
+
+def extract_technique(tech):
     """
     Finds the note timings based on the onsets and tech information
     Parameters
@@ -17,9 +42,7 @@ def extract_technique(tech, gt=False):
     # onset_diff = torch.cat([onsets[:1, :], onsets[1:, :] - onsets[:-1, :]], dim=0) == 1 # Make sure the activation is only 1 time-step
     
     # convert from label 0 - 9 to 1 - 10 for mir_eval by adding 1
-    tech = tech.cpu() # float
-    tech = (tech + 1).to(torch.uint8)
-    print('technique frame + 1: ', tech)
+    tech = tech.to(torch.int8).cpu() # float
 
     techniques = []
     intervals = []
@@ -61,3 +84,40 @@ def techniques_to_frames(techniques, intervals, shape):
     time = np.arange(roll.shape[0])
     tehcniques = [roll[t, :].nonzero()[0] for t in time]
     return time, tehcniques
+
+def extract_notes(notes, onset_threshold=0.5, frame_threshold=0.5):
+    """
+    Finds the note timings based on the onsets and frames information
+    Parameters
+    ----------
+    onsets: torch.FloatTensor, shape = [frames, bins]
+    frames: torch.FloatTensor, shape = [frames, bins]
+    velocity: torch.FloatTensor, shape = [frames, bins]
+    onset_threshold: float
+    frame_threshold: float
+    Returns
+    -------
+    pitches: np.ndarray of bin_indices
+    intervals: np.ndarray of rows containing (onset_index, offset_index)
+    velocities: np.ndarray of velocity values
+    """
+    notes = notes.to(torch.int8).cpu()
+
+    pitches = []
+    intervals = []
+
+    # get the interval of every note
+    i = 0
+    while i < len(notes):
+        note = notes[i]
+        onset = i
+        offset = i
+
+        while offset < len(notes) and notes[offset] == note:
+            offset += 1
+        # After knowing where does the note start and end, we can return the note information
+        pitches.append(note)
+        intervals.append([onset, offset - 0.1]) # offset - 1
+        i = offset
+
+    return np.array(pitches), np.array(intervals)

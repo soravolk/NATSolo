@@ -124,8 +124,8 @@ class block(nn.Module):
 class Encoder(nn.Module):
     def __init__(self,ds_ksize, ds_stride):
         super(Encoder, self).__init__()
-
-        self.block1 = block(1,16,(3,3),(1,1),ds_ksize, ds_stride)
+        # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
+        self.block1 = block(2,16,(3,3),(1,1),ds_ksize, ds_stride)
         self.block2 = block(16,32,(3,3),(1,1),ds_ksize, ds_stride)
         self.block3 = block(32,64,(3,3),(1,1),ds_ksize, ds_stride)
         self.block4 = block(64,128,(3,3),(1,1),ds_ksize, ds_stride)
@@ -191,7 +191,7 @@ class Spec2Roll(nn.Module):
         self.Unet1_decoder = Decoder(ds_ksize, ds_stride, 1)
         self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*complexity, 31, position=True, groups=complexity)
         # self.lstm1 = nn.LSTM(N_BINS, N_BINS, batch_first=True, bidirectional=True)    
-        self.linear1 = nn.Linear(N_BINS*complexity, 10) # 10 techniques
+        self.linear1 = nn.Linear(N_BINS*complexity, 59) # 10 techniques + 49 notes
         # self.linear_feature = nn.Linear(N_BINS, 10)
         # self.dropout_layer = nn.Dropout(0.5)
         # self.feat_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=10, dropout=0)
@@ -201,17 +201,18 @@ class Spec2Roll(nn.Module):
         x,s,c = self.Unet1_encoder(x)
         x = self.Unet1_decoder(x,s,c)
         x, a = self.lstm1(x[:,0]) # there is only one output from the decoder
-        technique = torch.sigmoid(self.linear1(x))
+        tech_note = torch.sigmoid(self.linear1(x))
         # feat, a = self.feat_stack(x[:,0]) # there is only one output from the decoder
         # technique = torch.sigmoid(feat)
-        return technique, a
+        return tech_note, a
 
 class Roll2Spec(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
         self.Unet2_encoder = Encoder(ds_ksize, ds_stride)
-        self.Unet2_decoder = Decoder(ds_ksize, ds_stride, 1)   
-        self.lstm2 = MutliHeadAttention1D(10, N_BINS*complexity, 31, position=True, groups=4)            
+        # WARNING: change the output from 1 to 2 to test hop 256 and 512
+        self.Unet2_decoder = Decoder(ds_ksize, ds_stride, 2)   
+        self.lstm2 = MutliHeadAttention1D(59, N_BINS*complexity, 31, position=True, groups=4)            
         self.linear2 = nn.Linear(N_BINS*complexity, N_BINS)         
         
     def forward(self, x):
@@ -265,7 +266,7 @@ class UNet_VAT(nn.Module):
 
     def forward(self, model, x):  
         with torch.no_grad():
-            frame_ref, _ = model.transcriber(x) # This will be used as a label, therefore no need grad()
+            y_ref, _ = model.transcriber(x) # This will be used as a label, therefore no need grad()
             
 #             if self.reconstruction:
 #                 technique, _ = model.transcriber(x)
@@ -279,11 +280,11 @@ class UNet_VAT(nn.Module):
         for _ in range(self.n_power):
             r = self.XI * _l2_normalize(d, binwise=self.binwise)
             x_adv = (x + r).clamp(0,1)
-            frame_pred, _ = model.transcriber(x_adv)
-            # if self.KL_Div==True:
-            #     loss = binary_kl_div(y_pred, y_ref)
-            # else:
-            loss = F.binary_cross_entropy(frame_pred, frame_ref)
+            y_pred, _ = model.transcriber(x_adv)
+            if self.KL_Div==True:
+                loss = binary_kl_div(y_pred, y_ref)
+            else:
+                loss = F.binary_cross_entropy(y_pred, y_ref)
                 
             loss.backward() # Calculate gradient wrt d
             d = d.grad.detach()*1e10
@@ -298,14 +299,13 @@ class UNet_VAT(nn.Module):
 #         print(f'r_adv max = {r_adv.max()}\tr_adv min = {r_adv.min()}')        
 #         logit_p = logit.detach()
         x_adv = (x + r_adv).clamp(0,1)
-        frame_pred, _ = model.transcriber(x_adv)
+        y_pred, _ = model.transcriber(x_adv)
         
-        # if self.KL_Div==True:
-        #     vat_loss = binary_kl_div(y_pred, y_ref)          
-        # else:
-        vat_frame_loss = F.binary_cross_entropy(frame_pred, frame_ref)              
-            
-        vat_loss = {'technique': vat_frame_loss }        
+        if self.KL_Div==True:
+            vat_loss = binary_kl_div(y_pred, y_ref)          
+        else:
+            vat_loss = F.binary_cross_entropy(y_pred, y_ref)              
+
         return vat_loss, r_adv, _l2_normalize(d, binwise=self.binwise)  # already averaged   
 
 
@@ -323,7 +323,10 @@ class UNet(nn.Module):
                                                       n_bins=N_BINS, fmin=27.5, 
                                                       bins_per_octave=12*r, trainable=False)
         elif spec == 'Mel':
-            self.spectrogram = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=N_FFT, n_mels=N_BINS,
+            self.spectrogram_1 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=768, n_mels=N_BINS,
+                                                          hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
+                                                          trainable_mel=False, trainable_STFT=False)
+            self.spectrogram_2 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=1536, n_mels=N_BINS,
                                                           hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
                                                           trainable_mel=False, trainable_STFT=False)
         elif spec == 'CFP':
@@ -355,6 +358,7 @@ class UNet(nn.Module):
 
         if self.reconstruction:     
             # U-net 2
+            print("reconstruction")
             reconstruction, a_reconstruct = self.reconstructor(technique)
             # Applying U-net 1 to the reconstructed spectrograms
             technique2, a_2 = self.transcriber(reconstruction)
@@ -362,14 +366,18 @@ class UNet(nn.Module):
         else:
             return technique, a
 
-    def run_on_batch(self, batch, batch_ul=None, VAT=False, class_weights=None):
+    def run_on_batch(self, batch, batch_ul=None, VAT=False, tech_weights=None):
       device = self.device
       audio = batch['audio']
-      gt_bin = batch['technique'].shape[-1] # ground truth bin size
-      technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
-      # get the weight for the unbalanced data
-      criterion = nn.CrossEntropyLoss(weight=class_weights, reduction='mean')
-      
+      gt_bin = batch['label'].shape[-2] # ground truth bin size
+      if batch['label'].dim() == 2:
+          label = batch['label'].unsqueeze(0)
+      else:
+          label = batch['label'] # tech + note
+      # technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
+      # use the weight for the unbalanced tech label
+      # tech_criterion = nn.CrossEntropyLoss(weight=tech_weights, reduction='mean')
+
       #####################for unlabelled audio###########################
       # do VAT for unlabelled audio
       if batch_ul:
@@ -378,16 +386,24 @@ class UNet(nn.Module):
             # audio_ul is already mono
             audio_ul.unsqueeze_(-1)
           audio_ul = audio_ul[:, :, 0]
-          spec = self.spectrogram(audio_ul) # x = torch.rand(8,229, 640)
-          if self.log:
-            spec = torch.log(spec + 1e-5)
-          spec = self.normalize.transform(spec)
-          spec = spec.transpose(-1,-2).unsqueeze(1)
 
+          # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
+          spec_1 = self.spectrogram_1(audio_ul) # x = torch.rand(8,229, 640)
+          spec_2 = self.spectrogram_2(audio_ul)
+          if self.log:
+            spec_1 = torch.log(spec_1 + 1e-5)
+            spec_2 = torch.log(spec_2 + 1e-5)
+          spec_1 = self.normalize.transform(spec_1)
+          spec_2 = self.normalize.transform(spec_2)
+
+          spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # torch.rand(8, 1, 229, 640)
+          spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
+          
+          spec = torch.cat((spec_1, spec_2), 1) # torch.rand(8, 2, 229, 640)
           lds_ul, _, r_norm_ul = self.vat_loss(self, spec)
       else:
           # lds_ul = torch.tensor(0.)
-          lds_ul = {'technique': torch.tensor(0.)}
+          lds_ul = torch.tensor(0.)
           r_norm_ul = torch.tensor(0.)
       #####################for unlabelled audio###########################
 
@@ -402,24 +418,29 @@ class UNet(nn.Module):
         if audio.dim() == 3:
           # batch 
           audio = audio[:, :, 0]
-        
-      spec = self.spectrogram(audio) # x = torch.rand(8, 229, 640)
+
+      # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
+      spec_1 = self.spectrogram_1(audio) # x = torch.rand(8, 229, 640)
+      spec_2 = self.spectrogram_2(audio) # x = torch.rand(8, 229, 640)
       # log compression
       if self.log:
-          spec = torch.log(spec + 1e-5)
-          
+          spec_1 = torch.log(spec_1 + 1e-5)
+          spec_2 = torch.log(spec_2 + 1e-5)
       # Normalizing spectrograms
-      spec = self.normalize.transform(spec)
-      
+      spec_1 = self.normalize.transform(spec_1)
+      spec_2 = self.normalize.transform(spec_2)
       # swap spec bins with timesteps so that it fits attention later 
-      spec = spec.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+      spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+      spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
+      spec = torch.cat((spec_1, spec_2), 1)
+
       # do VAT for labelled audio
       if VAT:
           lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
           r_adv = r_adv.squeeze(1) # remove the channel dimension
       else:
           r_adv = None
-          lds_l = {'technique': torch.tensor(0.)}
+          lds_l = torch.tensor(0.)
           r_norm_l = torch.tensor(0.)
           
       if self.reconstruction:
@@ -436,8 +457,8 @@ class UNet(nn.Module):
                   }
               losses = {
                       'loss/train_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                      'loss/train_technique': criterion(predictions['technique'], technique),
-                      'loss/train_technique2': criterion(predictions['technique2'], technique),
+                      'loss/train_technique': tech_criterion(predictions['technique'], technique),
+                      'loss/train_technique2': tech_criterion(predictions['technique2'], technique),
                       'loss/train_LDS_l': lds_l['technique'],
                       'loss/train_LDS_ul': lds_ul['technique'],
                       'loss/train_r_norm_l': r_norm_l.abs().mean(),
@@ -455,8 +476,8 @@ class UNet(nn.Module):
                       }                        
               losses = {
                       'loss/test_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                      'loss/train_technique': criterion(technique_pred, technique),
-                      'loss/train_technique2': criterion(technique_pred2, technique),
+                      'loss/train_technique': tech_criterion(technique_pred, technique),
+                      'loss/train_technique2': tech_criterion(technique_pred2, technique),
                       'loss/test_LDS_l': lds_l['technique'],
                       'loss/test_r_norm_l': r_norm_l.abs().mean()             
                       }                           
@@ -464,31 +485,38 @@ class UNet(nn.Module):
           return predictions, losses, spec.squeeze(1)
 
       else:
-          technique_pred, a = self(spec)
-          technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
+          tech_note_pred, a = self(spec)
+          # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
+          tech_note_pred = tech_note_pred[:, :gt_bin, :]
           if self.training:
               predictions = {
-                      'technique': technique_pred,
+                      'tech_note': tech_note_pred.reshape(-1, 59),
+                      'tech': tech_note_pred[:,:,:10].reshape(-1, 10),
+                      'note': tech_note_pred[:,:,10:].reshape(-1, 49),
                       'r_adv': r_adv,
                       'attention': a,
                       }
               losses = {
-                      'loss/train_technique': criterion(predictions['technique'], technique),
-                      'loss/train_LDS_l': lds_l['technique'],
-                      'loss/train_LDS_ul': lds_ul['technique'],
+                      # 'loss/train_tech_note': tech_criterion(predictions['tech_note'], technique),
+                      'loss/train_tech_note': F.binary_cross_entropy(tech_note_pred, label, weight=tech_weights),
+                      'loss/train_LDS_l': lds_l,
+                      'loss/train_LDS_ul': lds_ul,
                       'loss/train_r_norm_l': r_norm_l.abs().mean(),
                       'loss/train_r_norm_ul': r_norm_ul.abs().mean()                 
                       }
           else:
               # testing
               predictions = {
-                      'technique': technique_pred.argmax(axis=1).reshape(-1, gt_bin),
+                      'tech_note': tech_note_pred.reshape(-1, 59),
+                      'tech': tech_note_pred[:,:,:10].reshape(-1, 10).argmax(axis=1).reshape(-1, gt_bin),
+                      'note': tech_note_pred[:,:,10:].reshape(-1, 49).argmax(axis=1).reshape(-1, gt_bin),
                       'r_adv': r_adv,
                       'attention': a,
                       }                        
               losses = {
-                      'loss/test_technique': criterion(predictions['technique'], technique),
-                      'loss/test_LDS_l': lds_l['technique'],
+                      # 'loss/test_technique': tech_criterion(technique_pred, technique),
+                      'loss/test_tech_note': F.binary_cross_entropy(tech_note_pred, label, weight=tech_weights),
+                      'loss/test_LDS_l': lds_l,
                       'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                       }                            
 
