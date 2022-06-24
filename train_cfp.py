@@ -1,7 +1,5 @@
 import os
 import torch
-import importlib
-import argparse
 from datetime import datetime
 import pickle
 
@@ -10,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from sklearn.utils.class_weight import compute_class_weight
 from sacred import Experiment
 from sacred.commands import print_config
 from sacred.observers import FileStorageObserver
@@ -20,18 +19,63 @@ from torch.nn.utils import clip_grad_norm_
 from tqdm import tqdm
 from itertools import cycle
 
-from lib.config import config, update_config, infer_exp_id
+from model.UNet import UNet
 from model.dataset import prepare_CFP_dataset, compute_dataset_weight, FeatureDataset
 from model.utils import summary, flatten_attention
 from model.convert import *
 from model.evaluate_functions import *
-# ex = Experiment('train_original')
+ex = Experiment('train_original')
 
+# parameters for the network
+ds_ksize, ds_stride = (2,2),(2,2)
+mode = 'imagewise'
+sparsity = 2
+output_channel = 2
+logging_freq = 100 #100
+saving_freq = 200
+
+@ex.config
+def config():
+    root = 'runs'
+    device = 'cuda:0'
+    log = True
+    w_size = 31
+    spec = 'Mel'
+    resume_iteration = None # 'model-1200'
+    train_on = 'Solo'
+    n_heads=4
+    iteration = 10
+    VAT_start = 0
+    alpha = 1
+    VAT=True
+    XI= 1e-6
+    eps=1.3 # 2
+    reconstruction = True
+    batch_size = 8
+    train_batch_size = 8
+    val_batch_size = 3
+    sequence_length = 327680
+    if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
+        batch_size //= 2
+        sequence_length //= 2
+        print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
+    epoches = 8000 # 20000       
+    step_size_up = 100    
+    max_lr = 1e-4 
+    learning_rate = 1e-3
+    learning_rate_decay_steps = 1000
+    learning_rate_decay_rate = 0.98
+    clip_gradient_norm = 3
+    validation_length = sequence_length
+    refresh = False
+    logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
+        
+    ex.observers.append(FileStorageObserver.create(logdir)) # saving source code
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                     VAT, VAT_start, reconstruction):
-    #   log various result from the validation audio
+    # log various result from the validation audio
     model.eval()
 
     if (ep)%logging_freq==0 or ep==1:
@@ -167,7 +211,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     axvert.margins(y=0)
         writer.add_figure('images/Attention', fig , ep) 
 
-def train_VAT_model(model, iteration, ep, bs, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
+def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, class_weights=None):
     model.train()
     batch_size = l_loader.batch_size
     total_loss = 0
@@ -177,25 +221,23 @@ def train_VAT_model(model, iteration, ep, bs, l_loader, ul_loader, optimizer, sc
     for i in tqdm(range(iteration)):
         optimizer.zero_grad()
         batch_l = next(l_loader)
-        feat = batch_l['feature']
-        frame_loader = DataLoader(FeatureDataset(feat), bs, shuffle=True, drop_last=True)
+        
         if (ep < VAT_start) or (VAT==False):
-            predictions, losses, _ = model.run_on_batch(batch_l, None, False, frame_loader)
+            predictions, losses, _ = model.run_on_batch(batch_l, None, False, class_weights)
         else:
             batch_ul = next(ul_loader)
-            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT)
+            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT, class_weights)
 
-#         loss = sum(losses.values())
         loss = 0
+        # tweak the loss
+        # loss = losses(label) + losses(recon) + alpha*(losses['loss/train_LDS_l']+losses['loss/train_LDS_ul'])/2
+        # alpha = 1 in the original paper
         for key in losses.keys():
             if key.startswith('loss/train_LDS'):
-        #         print(key)
-                loss += alpha*losses[key]/2 # No need to divide by 2 if you have only _l
+                loss += alpha*losses[key]/2  # No need to divide by 2 if you have only _l -> ? but you divide both...
             else:
                 loss += losses[key]
-
-#     loss = losses['loss/train_frame'] + alpha*(losses['loss/train_LDS_l']+losses['loss/train_LDS_ul'])/2
-            
+  
         loss.backward()
         total_loss += loss.item()
 
@@ -213,16 +255,18 @@ def train_VAT_model(model, iteration, ep, bs, l_loader, ul_loader, optimizer, sc
     print(f'Train Epoch: {ep}\tLoss: {total_loss/iteration:.6f}')
     return predictions, losses, optimizer
 
-def train(logdir, model_class, device, log, resume_iteration, VAT, reconstruction, epoches, iteration, batch_size, learning_rate,
-            learning_rate_decay_steps, learning_rate_decay_rate, clip_gradient_norm, refresh, sequence_length, 
-            **model_kwargs):
+@ex.automain
+def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size, val_batch_size,
+          learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, alpha,
+          clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
+          reconstruction): 
+    print_config(ex.current_run)
 
-    locals().update(model_kwargs)
     supervised_set, unsupervised_set, valid_set, test_set = prepare_CFP_dataset(
                                                                           sequence_length=sequence_length,
                                                                           validation_length=sequence_length,
                                                                           refresh=refresh,
-                                                                          device=device, 
+                                                                          device=device,
                                                                           audio_type='flac')  
     if VAT:
         unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
@@ -230,47 +274,47 @@ def train(logdir, model_class, device, log, resume_iteration, VAT, reconstructio
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight for BCE loss
-    import pdb ; pdb.set_trace()
     class_weights = compute_dataset_weight(device)
-    
+
     print("supervised_set: ", len(supervised_set))
     print("unsupervised_set: ", len(unsupervised_set))
     print("valid_set: ", len(valid_set))
     print("test_set: ", len(test_set))
-    supervised_loader = DataLoader(supervised_set, 1, shuffle=True, drop_last=True)
+    supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(valid_set, 1, shuffle=False, drop_last=True) # 4 -> 1
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
 
-    ds_ksize, ds_stride = (2,2),(2,2) 
-    model = model_class(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
-                     mode=mode, device=device, XI=XI, eps=eps)
-    model.to(device)    
+    # model setting
+    ds_ksize, ds_stride = (2,2),(2,2)     
+    model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
+                    mode=mode, spec=spec, device=device, XI=XI, eps=eps)
+    model.to(device)
     if resume_iteration is None:  
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0
     else: # Loading checkpoints and continue training
         model_path = os.path.join('checkpoint', f'{resume_iteration}.pt')
-        model = torch.load(model_path)
+        model.load_state_dict(torch.load(model_path))
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         optimizer.load_state_dict(torch.load(os.path.join('checkpoint', 'last-optimizer-state.pt')))
 
     summary(model)
-#     scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,cycle_momentum=False)
+    # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,cycle_momentum=False)
     scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
 
     for ep in tqdm(range(1, epoches+1)):
         if VAT==True:
-            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, batch_size, supervised_loader, unsupervised_loader,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)
+            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, class_weights)
         else:
-            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, batch_size, supervised_loader, None,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)            
+            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, class_weights)            
         loss = sum(losses.values())
 
         # Logging results to tensorboard
         if ep == 1:
             writer = SummaryWriter(logdir) # create tensorboard logger     
-        if ep < VAT_start:
+        if ep < VAT_start or VAT == False:
             tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                             False, VAT_start, reconstruction)
@@ -281,35 +325,18 @@ def train(logdir, model_class, device, log, resume_iteration, VAT, reconstructio
 
         # Saving model
         if (ep)%saving_freq == 0:
-            torch.save(model.state_dict(), os.path.join(logdir, f'model-{ep}.pt'))
-            torch.save(optimizer.state_dict(), os.path.join(logdir, 'last-optimizer-state.pt'))
+            torch.save(model.state_dict(), os.path.join('checkpoint', f'model-{ep}.pt'))
+            torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
         
         for key, value in {**losses}.items():
             writer.add_scalar(key, value.item(), global_step=ep) 
-
-if __name__ == '__main__':
-
-    # Parse args & config
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--cfg', required=True)
-    parser.add_argument('opts',
-                        help='Modify config options using the command-line',
-                        default=None, nargs=argparse.REMAINDER)
-    args = parser.parse_args()
-    update_config(config, args) 
-
-    model_file = importlib.import_module(config.model.file)
-    model_class = getattr(model_file, config.model.modelclass)
-    logdir = f'{config.root}/'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    train(logdir, model_class, config.device, config.log, config.resume_iteration, config.model.VAT, config.model.reconstruction,
-          **config.training, **config.dataset.common_kwargs, **config.model.kwargs)
 
     """
     # Evaluating model performance on the full MAPS songs in the test split     
     print('Training finished, now evaluating on the MAPS test split (full songs)')
     with torch.no_grad():
         model = model.eval()
-        metrics = evaluate_wo_velocity(tqdm(full_validation), model, reconstruction=False,
+        metrics = evaluate_wo_prediction(tqdm(full_validation), model, reconstruction=False,
                                        save_path=os.path.join(logdir,'./MIDI_results'))
         
     for key, values in metrics.items():

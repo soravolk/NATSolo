@@ -259,23 +259,26 @@ def prepare_VAT_dataset(sequence_length, validation_length, refresh, device):
     ul_set = Solo(folders=['train_unlabel'], sequence_length=sequence_length, device=device) 
     valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device)
     # what is full_validation??
-    test_set = Solo(folders=['test'], sequence_length=None, device=device, audio_type=audio_type)
+    # test_set = Solo(folders=['test'], sequence_length=None, device=device, audio_type=audio_type)
     
-    return l_set, ul_set, valid_set, test_set
+    return l_set, ul_set, valid_set
 
 def prepare_CFP_dataset(sequence_length, validation_length, refresh, device):
     l_set = Solo_CFP(folders=['train_label'], sequence_length=sequence_length, sample_rate=SAMPLE_RATE, device=device)            
     ul_set = Solo_CFP(folders=['train_unlabel'], sequence_length=sequence_length, sample_rate=SAMPLE_RATE, device=device) 
     valid_set = Solo_CFP(folders=['valid'], sequence_length=sequence_length, sample_rate=SAMPLE_RATE, device=device)
     # what is full_validation??
-    test_set = Solo_CFP(folders=['test'], sequence_length=None, sample_rate=SAMPLE_RATE, device=device, audio_type=audio_type)
-    return l_set, ul_set, valid_set, test_set
+    # test_set = Solo_CFP(folders=['test'], sequence_length=None, sample_rate=SAMPLE_RATE, device=device, audio_type=audio_type)
+    return l_set, ul_set, valid_set 
 
 def prepare_dataset(sequence_length, validation_length, refresh, device):
     # Choosing the dataset to use
     train_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device, refresh=refresh)
     valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device, refresh=refresh)
     test_set = Solo(folders=['test'], sequence_length=sequence_length, device=device, refresh=refresh)
+
+def compute_dataset_weight(device):
+    train_set = Solo_CFP(folders=['train_label'], sequence_length=None, device=device, refresh=None)
 
     y = []
     for data in train_set:
