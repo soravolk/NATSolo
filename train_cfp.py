@@ -215,7 +215,6 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
 
 def train_VAT_model(model, iteration, ep, batch_size, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, class_weights=None):
     model.train()
-    batch_size = l_loader.batch_size
     total_loss = 0
     l_loader = cycle(l_loader)
     if ul_loader:

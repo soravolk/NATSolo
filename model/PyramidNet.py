@@ -140,7 +140,7 @@ class PyramidNet_ShakeDrop(nn.Module):
       criterion = nn.CrossEntropyLoss(reduction='mean')
       spec = batch['feature']
 
-      out = self(spec) 
+      out = self(spec)
       loss = criterion(out, batch['label'])
 
       predictions = {
