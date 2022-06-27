@@ -20,7 +20,8 @@ from tqdm import tqdm
 from itertools import cycle
 
 from model.UNet import UNet
-from model.dataset import prepare_CFP_dataset, compute_dataset_weight, FeatureDataset
+from model.PyramidNet import PyramidNet_ShakeDrop
+from model.dataset_cfp import prepare_CFP_dataset, compute_dataset_weight, FeatureDataset
 from model.utils import summary, flatten_attention
 from model.convert import *
 from model.evaluate_functions import *
@@ -41,13 +42,14 @@ def config():
     log = True
     w_size = 31
     spec = 'Mel'
+    model_type = 'pyramid'
     resume_iteration = None # 'model-1200'
     train_on = 'Solo'
     n_heads=4
     iteration = 10
     VAT_start = 0
     alpha = 1
-    VAT=True
+    VAT=False
     XI= 1e-6
     eps=1.3 # 2
     reconstruction = True
@@ -211,7 +213,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     axvert.margins(y=0)
         writer.add_figure('images/Attention', fig , ep) 
 
-def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, class_weights=None):
+def train_VAT_model(model, iteration, ep, batch_size, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, class_weights=None):
     model.train()
     batch_size = l_loader.batch_size
     total_loss = 0
@@ -222,52 +224,55 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
         optimizer.zero_grad()
         batch_l = next(l_loader)
         
-        if (ep < VAT_start) or (VAT==False):
-            predictions, losses, _ = model.run_on_batch(batch_l, None, False, class_weights)
-        else:
-            batch_ul = next(ul_loader)
-            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT, class_weights)
-
-        loss = 0
-        # tweak the loss
-        # loss = losses(label) + losses(recon) + alpha*(losses['loss/train_LDS_l']+losses['loss/train_LDS_ul'])/2
-        # alpha = 1 in the original paper
-        for key in losses.keys():
-            if key.startswith('loss/train_LDS'):
-                loss += alpha*losses[key]/2  # No need to divide by 2 if you have only _l -> ? but you divide both...
+        feature = batch_l['feature'].cpu()
+        label = batch_l['tech_label'].cpu()
+        device = batch_l['feature'].device
+        per_song_loader = DataLoader(FeatureDataset(feature, label), batch_size, shuffle=True, drop_last=True)
+        frame_batch_l = {}
+        for (frame_idx, frame_batch, frame_label) in per_song_loader:
+            frame_batch_l['feature'] = frame_batch.to(device)
+            frame_batch_l['label'] = frame_label.long().to(device)
+            if (ep < VAT_start) or (VAT==False):
+                predictions, losses, _ = model.run_on_batch(frame_batch_l, None, False, class_weights)
             else:
-                loss += losses[key]
-  
-        loss.backward()
-        total_loss += loss.item()
+                batch_ul = next(ul_loader)
+                predictions, losses, _ = model.run_on_batch(frame_batch_l, batch_ul, VAT, class_weights)
+            loss = 0
+            # tweak the loss
+            # loss = losses(label) + losses(recon) + alpha*(losses['loss/train_LDS_l']+losses['loss/train_LDS_ul'])/2
+            # alpha = 1 in the original paper
+            for key in losses.keys():
+                if key.startswith('loss/train_LDS'):
+                    loss += alpha*losses[key]/2  # No need to divide by 2 if you have only _l -> ? but you divide both...
+                else:
+                    loss += losses[key]
+            loss.backward()
+            total_loss += loss.item()
 
-        optimizer.step()
-        scheduler.step()
+            optimizer.step()
+            scheduler.step()
 
-        if clip_gradient_norm:
-            clip_grad_norm_(model.parameters(), clip_gradient_norm)
-        print(f'Train Epoch: {ep} [{i*batch_size}/{iteration*batch_size}'
-                f'({100. * i / iteration:.0f}%)]'
-                f"\tMain Loss: {sum(losses.values()):.6f}\t"
-#                 + f"".join([f"{k.split('/')[-1]}={v.item():.3e}\t" for k,v in losses.items()])
-                , end='\r') 
+            if clip_gradient_norm:
+                clip_grad_norm_(model.parameters(), clip_gradient_norm)
+            print(f'Train Epoch: {ep} [{i*batch_size}/{iteration*batch_size}'
+                    f'({100. * i / iteration:.0f}%)]'
+                    f"\tMain Loss: {sum(losses.values()):.6f}\t", end='\r') 
     print(' '*100, end = '\r')          
     print(f'Train Epoch: {ep}\tLoss: {total_loss/iteration:.6f}')
     return predictions, losses, optimizer
 
 @ex.automain
-def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size, val_batch_size,
+def train(spec, resume_iteration, batch_size, train_batch_size, sequence_length, w_size, n_heads, val_batch_size,
           learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, alpha,
           clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
-          reconstruction): 
+          reconstruction, model_type): 
     print_config(ex.current_run)
-
-    supervised_set, unsupervised_set, valid_set, test_set = prepare_CFP_dataset(
-                                                                          sequence_length=sequence_length,
-                                                                          validation_length=sequence_length,
-                                                                          refresh=refresh,
-                                                                          device=device,
-                                                                          audio_type='flac')  
+    supervised_set, unsupervised_set, valid_set = prepare_CFP_dataset(
+                                                                      sequence_length=sequence_length,
+                                                                      validation_length=sequence_length,
+                                                                      refresh=refresh,
+                                                                      device=device,
+                                                                      audio_type='wav')  
     if VAT:
         unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
 #     supervised_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
@@ -279,15 +284,22 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     print("supervised_set: ", len(supervised_set))
     print("unsupervised_set: ", len(unsupervised_set))
     print("valid_set: ", len(valid_set))
-    print("test_set: ", len(test_set))
-    supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(valid_set, 1, shuffle=False, drop_last=True) # 4 -> 1
+    # print("test_set: ", len(test_set))
+    # supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
+    # val_loader = DataLoader(valid_set, 1, shuffle=False, drop_last=True) # 4 -> 1
+    supervised_loader = DataLoader(supervised_set, 1, shuffle=True, drop_last=True)
+    val_loader = DataLoader(valid_set, 1, shuffle=False, drop_last=True)
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
 
     # model setting
-    ds_ksize, ds_stride = (2,2),(2,2)     
-    model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
-                    mode=mode, spec=spec, device=device, XI=XI, eps=eps)
+    if model_type == 'unet':
+        ds_ksize, ds_stride = (2,2),(2,2)     
+        model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
+                        mode=mode, spec=spec, device=device, XI=XI, eps=eps)
+    elif model_type == 'pyramid':
+        model = PyramidNet_ShakeDrop(depth=110, alpha=270, shakedrop=True, num_class=10)
+
+
     model.to(device)
     if resume_iteration is None:  
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
@@ -304,13 +316,12 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 
     for ep in tqdm(range(1, epoches+1)):
         if VAT==True:
-            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
+            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, train_batch_size, supervised_loader, unsupervised_loader,
                                                              optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, class_weights)
         else:
-            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
+            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, train_batch_size, supervised_loader, None,
                                                              optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, class_weights)            
         loss = sum(losses.values())
-
         # Logging results to tensorboard
         if ep == 1:
             writer = SummaryWriter(logdir) # create tensorboard logger     
