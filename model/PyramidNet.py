@@ -138,10 +138,20 @@ class PyramidNet_ShakeDrop(nn.Module):
     def run_on_batch(self, batch, batch_ul=None, VAT=False, tech_weights=None, per_song_loader=None):
     #   criterion = nn.CrossEntropyLoss(weight=tech_weights, reduction='mean')
       criterion = nn.CrossEntropyLoss(reduction='mean')
+    
       spec = batch['feature']
-
       out = self(spec)
       loss = criterion(out, batch['label'])
+      if VAT:
+        ### [TODO]  Change unsupervised function here
+        ul_criterion = nn.CrossEntropyLoss(reduction='mean')
+
+        spec = batch_ul['feature']
+        out = self(spec)
+        ### [TODO]  Change unsupervised function here
+        pseu_label = out.argmax(1)
+        loss_ul = ul_criterion(out, pseu_label)
+        loss += loss_ul
 
       predictions = {
                 'technique_pred': out,

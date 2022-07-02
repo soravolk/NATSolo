@@ -5,6 +5,7 @@ from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
 import soundfile
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torch import nn
 from abc import abstractmethod
@@ -49,13 +50,14 @@ class AudioDataset(Dataset):
             result['audio'] = data['audio'][begin:end].to(self.device)
             # for labelled data
             if data.get('label') is not None:
-              result['tech_label'] = data['label'][step_begin:step_end].to(self.device).float()
+              ####### why it should be float?? #######
+              result['label'] = data['label'][step_begin:step_end].to(self.device).float()
 
+            result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
         else:
-            result['audio'] = data['audio'].to(self.device)
-            result['tech_label'] = data['label'].to(self.device).float()
+            # result['audio'] = data['audio'].to(self.device)
+            result['tech_label'] = data['tech_label'].to(self.device).float()
 
-        result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
 
         return result
 
@@ -73,7 +75,7 @@ class AudioDataset(Dataset):
         """return the list of input files (audio_filename, tsv_filename) for this folder"""
         raise NotImplementedError
 
-    def load(self, audio_path, tsv_path = None):
+    def load(self, audio_path, tech_tsv_path = None, note_tsv_path = None):
         """
         load an audio track and the corresponding labels
         Returns
@@ -108,35 +110,54 @@ class AudioDataset(Dataset):
         audio_length = len(audio)
 
         # unlabelled data
-        if tsv_path is None:
+        if tech_tsv_path is None and note_tsv_path is None:
           data = dict(path=audio_path, audio=audio)
           torch.save(data, saved_data_path)
           return data
 
         # check if the annotation and audio are matched
         if self.audio_type == 'flac':
-            assert(audio_path.split("/")[-1][:-4] == tsv_path.split("/")[-1][:-3])
+            assert(audio_path.split("/")[-1][:-4] == tech_tsv_path.split("/")[-1][:-3])
+            assert(audio_path.split("/")[-1][:-4] == note_tsv_path.split("/")[-1][:-3])
         else:
-            assert(audio_path.split("/")[-1][:-3] == tsv_path.split("/")[-1][:-3])
+            assert(audio_path.split("/")[-1][:-3] == tech_tsv_path.split("/")[-1][:-3])
+            assert(audio_path.split("/")[-1][:-3] == note_tsv_path.split("/")[-1][:-3])
 
-
-        # !!! This will affect the labels' time steps
+        # labels' time steps
         all_steps = audio_length  // HOP_LENGTH  
-        # 0 means silence
-        label = torch.zeros(all_steps, dtype=torch.uint8)
+        # 0 means silence (not lead guitar)
+        tech_label = torch.zeros(all_steps, dtype=torch.uint8)
+        note_label = torch.zeros(all_steps, dtype=torch.uint8)
 
         # load labels(start, duration, techniques)
-        midi = np.loadtxt(tsv_path, delimiter='\t', skiprows=1)
-        
-        for start, end, technique in midi:
+        all_tech = np.loadtxt(tech_tsv_path, delimiter='\t', skiprows=1)
+        all_note = np.loadtxt(note_tsv_path, delimiter='\t', skiprows=1)
+        # processing tech labels
+        for start, end, technique in all_tech:
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
             left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
 
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
 
-            label[left:right] = technique
-        data = dict(path=audio_path, audio=audio, label=label)
+            tech_label[left:right] = technique
+        # processing note labels
+        for start, end, note in all_note:
+            left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
+            left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
+
+            right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
+            right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
+
+            note_label[left:right] = note
+        
+        ##### concat tech and note label #####
+        # % 52 because the lowest note is 52
+        note_label_onehot = F.one_hot(note_label.to(torch.int64) % 52, num_classes=49)
+        tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=10)
+        label = torch.cat((tech_label_onehot, note_label_onehot), 1)
+
+        data = dict(path=audio_path, audio=audio, tech_label=tech_label, label=label)
         torch.save(data, saved_data_path)
         return data
 
@@ -150,44 +171,49 @@ class Solo(AudioDataset):
         return ['train', 'test']
     
     def appending_wav_tsv(self, folder):
-        wavs = list(glob(os.path.join(self.path, f"{folder}/{self.audio_type}", f'*.{self.audio_type}')))
-        wavs = sorted(wavs)
+        audio = list(glob(os.path.join(self.path, f"{folder}/{self.audio_type}", f'*.{self.audio_type}')))
+        audio = sorted(audio)
         if folder == 'train_unlabel':
-          return wavs
+          return audio
 
         # make sure tsv and wav are matched
-        tsvs = []
-        for file in wavs:
+        tech_tsvs = []
+        note_tsvs = []
+        for file in audio:
             if self.audio_type == 'flac':
-                name = self.path + f"/{folder}/tsv/" + file.split("/")[-1][:-4] + 'tsv'
+                tech_name = self.path + f"/{folder}/tech_tsv/" + file.split("/")[-1][:-4] + 'tsv'
+                note_name = self.path + f"/{folder}/note_tsv/" + file.split("/")[-1][:-4] + 'tsv'
             else:
-                name = self.path + f"/{folder}/tsv/" + file.split("/")[-1][:-3] + 'tsv'
-            tsvs.append(name)
+                tech_name = self.path + f"/{folder}/tech_tsv/" + file.split("/")[-1][:-3] + 'tsv'
+                note_name = self.path + f"/{folder}/note_tsv/" + file.split("/")[-1][:-4] + 'tsv'
+            tech_tsvs.append(tech_name)
+            note_tsvs.append(note_name)
 
-        return wavs, tsvs
+        return audio, tech_tsvs, note_tsvs
 
     def files(self, folder):
         if folder == 'train_label':
-            wavs, tsvs = self.appending_wav_tsv(folder)
+            audio, tech_tsvs, note_tsvs = self.appending_wav_tsv(folder)
         elif folder == 'train_unlabel':
-            wavs = self.appending_wav_tsv(folder)
-            return zip(wavs)
+            audio = self.appending_wav_tsv(folder)
+            return zip(audio)
         elif folder == 'valid':
-            wavs, tsvs = self.appending_wav_tsv(folder)
+            audio, tech_tsvs, note_tsvs = self.appending_wav_tsv(folder)
         elif folder == 'test':
-            wavs, tsvs = self.appending_wav_tsv(folder)
+            audio, tech_tsvs, note_tsvs = self.appending_wav_tsv(folder)
 
-        assert(all(os.path.isfile(wav) for wav in wavs))
-        assert(all(os.path.isfile(tsv) for tsv in tsvs))
-        
-        return zip(wavs, tsvs)
+        assert(all(os.path.isfile(wav) for wav in audio))
+        assert(all(os.path.isfile(tsv) for tsv in tech_tsvs))
+        assert(all(os.path.isfile(tsv) for tsv in note_tsvs))
+
+        return zip(audio, tech_tsvs, note_tsvs)
 
 class Solo_CFP(Solo):
     def __init__(self, path='./Solo', folders=None, sequence_length=None, sample_rate=16000, overlap=True,
-                 seed=42, refresh=False, device='cpu', audio_type='wav', num_feat=9, k=9):
+                 seed=42, refresh=False, device='cpu', audio_type='flac', num_feat=9, k=9):
         self.overlap = overlap
         self.num_feat = num_feat
-        super().__init__(path, folders, sequence_length, seed=seed, refresh=refresh, device=device, audio_type='wav')
+        super().__init__(path, folders, sequence_length, seed=seed, refresh=refresh, device=device, audio_type=audio_type)
         self.audio_type = audio_type
         self.normalize = lambda x: (x-np.mean(x))/(np.std(x)+1e-8)    
         self.sample_rate = sample_rate
@@ -198,14 +224,15 @@ class Solo_CFP(Solo):
 
         data = self.data[index]
         result = dict(path=data['path'])
-        audio = data['audio'][None, :, 0]
+        audio = data['audio'][None, :]
         feat = full_feature_extraction(*cfp_feature_extraction(audio, self.sample_rate))
         feat = feat.reshape(self.num_feat, 1566//self.num_feat, -1)
         feat = torch.Tensor(self.normalize(feat))
 
         result['audio'] = data['audio'].to(self.device)
         result['feature'] = feat.to(self.device)
-        result['tech_label'] = data['label'].to(self.device).float()
+        if data.get('tech_label') is not None:
+            result['tech_label'] = data['tech_label'].to(self.device).float()
 
         # result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15
 
@@ -213,7 +240,7 @@ class Solo_CFP(Solo):
 
 class FeatureDataset(torch.utils.data.Dataset):
     
-    def __init__(self, feature, label, num_feat=9, k=9):
+    def __init__(self, feature, label=None, num_feat=9, k=9):
 
         # --- Args ---
         self.window_size = 2*k+1
@@ -223,7 +250,9 @@ class FeatureDataset(torch.utils.data.Dataset):
         # self.feature = torch.from_numpy(feature).float()
         self.feature = feature
         self.feature = self.feature.reshape((num_feat,1566//num_feat,-1))
-        self.label = label[0]
+        self.label = None
+        if label is not None:
+            self.label = label[0]
         self.len = self.feature.shape[-1]
 
         # --- Pad Length ---
@@ -250,14 +279,17 @@ class FeatureDataset(torch.utils.data.Dataset):
         
     def __getitem__(self, index):
         frame_feat = self.feature[:, :, index:index+self.window_size]
-        frame_tech = self.label[index]
-        return index, frame_feat, frame_tech
+        if self.label is not None:
+            frame_tech = self.label[index]
+            return index, frame_feat, frame_tech
+
+        return index, frame_feat
     
     def __len__(self):
         return self.len
 
 def prepare_CFP_dataset(sequence_length, validation_length, refresh, device, audio_type):
-    l_set = Solo_CFP(folders=['train_label'], sequence_length=sequence_length, device=device, audio_type=audio_type)            
+    l_set = Solo_CFP(folders=['train_label'], sequence_length=sequence_length, device=device, audio_type=audio_type)              
     ul_set = Solo_CFP(folders=['train_unlabel'], sequence_length=sequence_length, device=device, audio_type=audio_type) 
     valid_set = Solo_CFP(folders=['valid'], sequence_length=sequence_length, device=device, audio_type=audio_type)
     # full_validation (whole song)
@@ -270,7 +302,7 @@ def compute_dataset_weight(device):
 
     y = []
     for data in train_set:
-        y.extend(data['tech_label'].detach().cpu().numpy())
+        y.extend(data['tech_label'].detach().cpu().numpy().int())
     tech_weights = compute_class_weight(class_weight='balanced', classes=np.unique(y), y=y)
     tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
     note_weights = torch.ones(49, dtype=torch.float).to(device)

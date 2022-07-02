@@ -43,13 +43,14 @@ def config():
     w_size = 31
     spec = 'Mel'
     model_type = 'pyramid'
+    num_classes = 59
     resume_iteration = None # 'model-1200'
     train_on = 'Solo'
     n_heads=4
     iteration = 10
     VAT_start = 0
     alpha = 1
-    VAT=False
+    VAT=True
     XI= 1e-6
     eps=1.3 # 2
     reconstruction = True
@@ -222,20 +223,26 @@ def train_VAT_model(model, iteration, ep, batch_size, l_loader, ul_loader, optim
     for i in tqdm(range(iteration)):
         optimizer.zero_grad()
         batch_l = next(l_loader)
+        batch_ul = next(ul_loader)
         
         feature = batch_l['feature'].cpu()
         label = batch_l['tech_label'].cpu()
         device = batch_l['feature'].device
+        ul_feature = batch_ul['feature'].cpu()
+
         per_song_loader = DataLoader(FeatureDataset(feature, label), batch_size, shuffle=True, drop_last=True)
-        frame_batch_l = {}
+        per_song_uloader = DataLoader(FeatureDataset(ul_feature), batch_size, shuffle=True, drop_last=True)
+        per_song_uloader = cycle(per_song_uloader)
+        frame_batch_l, frame_batch_ul = {}, {}
         for (frame_idx, frame_batch, frame_label) in per_song_loader:
             frame_batch_l['feature'] = frame_batch.to(device)
             frame_batch_l['label'] = frame_label.long().to(device)
             if (ep < VAT_start) or (VAT==False):
                 predictions, losses, _ = model.run_on_batch(frame_batch_l, None, False, class_weights)
             else:
-                batch_ul = next(ul_loader)
-                predictions, losses, _ = model.run_on_batch(frame_batch_l, batch_ul, VAT, class_weights)
+                _, ul_batch = next(per_song_uloader)
+                frame_batch_ul['feature'] = ul_batch.to(device)
+                predictions, losses, _ = model.run_on_batch(frame_batch_l, frame_batch_ul, VAT, class_weights)
             loss = 0
             # tweak the loss
             # loss = losses(label) + losses(recon) + alpha*(losses['loss/train_LDS_l']+losses['loss/train_LDS_ul'])/2
@@ -264,21 +271,22 @@ def train_VAT_model(model, iteration, ep, batch_size, l_loader, ul_loader, optim
 def train(spec, resume_iteration, batch_size, train_batch_size, sequence_length, w_size, n_heads, val_batch_size,
           learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, alpha,
           clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
-          reconstruction, model_type): 
+          reconstruction, model_type, num_classes): 
     print_config(ex.current_run)
     supervised_set, unsupervised_set, valid_set = prepare_CFP_dataset(
                                                                       sequence_length=sequence_length,
                                                                       validation_length=sequence_length,
                                                                       refresh=refresh,
                                                                       device=device,
-                                                                      audio_type='wav')  
+                                                                      audio_type='flac')  
     if VAT:
-        unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
+        unsupervised_loader = DataLoader(unsupervised_set, 1, shuffle=True, drop_last=True)
 #     supervised_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight for BCE loss
-    class_weights = compute_dataset_weight(device)
+    # class_weights = compute_dataset_weight(device)
+    class_weights = np.zeros(59)
 
     print("supervised_set: ", len(supervised_set))
     print("unsupervised_set: ", len(unsupervised_set))
@@ -296,7 +304,7 @@ def train(spec, resume_iteration, batch_size, train_batch_size, sequence_length,
         model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
                         mode=mode, spec=spec, device=device, XI=XI, eps=eps)
     elif model_type == 'pyramid':
-        model = PyramidNet_ShakeDrop(depth=110, alpha=270, shakedrop=True, num_class=10)
+        model = PyramidNet_ShakeDrop(depth=110, alpha=270, shakedrop=True, num_class=num_classes)
 
 
     model.to(device)
