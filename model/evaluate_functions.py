@@ -14,7 +14,7 @@ from .utils import save_pianoroll
 
 eps = sys.float_info.epsilon    
 
-def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, tech_weights=None):
+def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstruction=True, tech_weights=None):
     technique_dict = {
         0: 'no tech',
         1: 'normal', 
@@ -32,9 +32,11 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
     transcriptions = defaultdict(list)
 
     for val_data in tqdm(data):
-        pred, losses, _ = model.run_on_batch(val_data, None, False, tech_weights)
-        tech_label = val_data['label'][:,:10].argmax(axis=1) # only one label file
-        note_label = val_data['label'][:,10:].argmax(axis=1)
+        pred, losses, _ = model.run_on_batch(val_data, None, False)
+        # tech_label = val_data['label'][:,10:20].argmax(axis=1) # only one label file
+        # note_label = val_data['label'][:,23:].argmax(axis=1)
+        tech_label = val_data['label'][:,5:15].argmax(axis=1) # only one label file
+        note_label = val_data['label'][:,18:].argmax(axis=1)
         for key, loss in losses.items():
             metrics[key].append(loss.item())
 
@@ -78,18 +80,20 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
         note_ref_hz = np.array([midi_to_hz(MIN_MIDI + midi) for midi in note_ref])
         note_i_est = (note_i_est * scaling).reshape(-1, 2)
         note_est_hz = np.array([midi_to_hz(MIN_MIDI + midi) for midi in note_est])
-       
+        
+        a = evaluate_frame_accuracy(note_label, pred['note']) # frame level
         p, r, f, o = evaluate_notes(note_i_ref, note_ref_hz, note_i_est, note_est_hz, offset_ratio=None)
+        metrics['metric/note/accuracy'].append(a)
         metrics['metric/note/precision'].append(p)
         metrics['metric/note/recall'].append(r)
         metrics['metric/note/f1'].append(f)
         metrics['metric/note/overlap'].append(o)     
 
-        p, r, f, o = evaluate_notes(note_i_ref, note_ref_hz, note_i_est, note_est_hz)
-        metrics['metric/note-with-offsets/precision'].append(p)
-        metrics['metric/note-with-offsets/recall'].append(r)
-        metrics['metric/note-with-offsets/f1'].append(f)
-        metrics['metric/note-with-offsets/overlap'].append(o)
+        # p, r, f, o = evaluate_notes(note_i_ref, note_ref_hz, note_i_est, note_est_hz)
+        # metrics['metric/note-with-offsets/precision'].append(p)
+        # metrics['metric/note-with-offsets/recall'].append(r)
+        # metrics['metric/note-with-offsets/f1'].append(f)
+        # metrics['metric/note-with-offsets/overlap'].append(o)
 
         # may implement frame_metrics later
 
@@ -98,15 +102,14 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
             'Precision': cm_precision,
             'Recall': cm_recall,
         }
-        if ep == 1:
-            transcriptions['tech'].append(tech_ref)
-            transcriptions['tech_interval'].append(tech_i_ref)
-            transcriptions['note'].append(note_ref + 52)
-            transcriptions['note_interval'].append(note_i_ref)
-        else:
+        if ep%logging_freq == 0:
+            transcriptions['tech_gt'].append(tech_ref)
+            transcriptions['tech_interval_gt'].append(tech_i_ref)
+            transcriptions['note_gt'].append(note_ref + 51)
+            transcriptions['note_interval_gt'].append(note_i_ref)
             transcriptions['tech'].append(tech_est)
             transcriptions['tech_interval'].append(tech_i_est)
-            transcriptions['note'].append(note_est + 52)
+            transcriptions['note'].append(note_est + 51)
             transcriptions['note_interval'].append(note_i_est)
 
         # if reconstruction:
@@ -146,9 +149,9 @@ def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):
     i = 0 
     for batch in loader:
         if ep < VAT_start or VAT==False:
-            predictions, losses, _ = model.run_on_batch(batch, None, False, tech_weights)
+            predictions, losses, _ = model.run_on_batch(batch, None, False)
         else:
-            predictions, losses, _ = model.run_on_batch(batch, None, True, tech_weights)
+            predictions, losses, _ = model.run_on_batch(batch, None, True)
 
         for key, loss in losses.items():
             metrics[key].append(loss.item())

@@ -47,7 +47,7 @@ def config():
     iteration = 10
     VAT_start = 0
     alpha = 1
-    VAT=True
+    VAT=False
     XI= 1e-6
     eps=1.3 # 2
     reconstruction = False
@@ -59,7 +59,7 @@ def config():
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 8000 # 20000
+    epoches = 6000 # 20000
     step_size_up = 100
     max_lr = 1e-4
     learning_rate = 1e-3
@@ -93,13 +93,13 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics, cm_dict, transcriptions = evaluate_prediction(valid_set, model, ep=ep, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics, cm_dict, transcriptions = evaluate_prediction(valid_set, model, ep=ep, logging_freq=logging_freq, reconstruction=reconstruction, tech_weights=tech_weights)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
                     # show metrics on terminal
                     print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')
-                    if 'precision' in name or 'recall' in name or 'f1' in name:
+                    if 'accuracy' in name or 'precision' in name or 'recall' in name or 'f1' in name:
                         writer.add_scalar(key, np.mean(values), global_step=ep)
 
         # test on labelled training set
@@ -110,7 +110,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 writer.add_scalar(key, np.mean(values), global_step=ep)
 
     # visualized validation audio
-    predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT, tech_weights)
+    predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT)
     loss = sum(losses.values())
 
     mel = mel[:,0,:,:]
@@ -135,37 +135,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         #     axs[idx].axis('off')
         # fig.tight_layout()
         # writer.add_figure('images/Label', fig , ep)
-        
-        # plot transcription
-        fig = plt.figure(constrained_layout=True, figsize=(48,20))
-        subfigs = fig.subfigures(2, 2)
-        subfigs = subfigs.flat
-        for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'])):
-            subfigs[i].suptitle(f'Transcription {i}')
-            ax = subfigs[i].subplots(2,1)
-            ax = ax.flat
-            # note transcription
-            ax[0].set_title('Note')
-            ax[0].set_xlabel('time (t)')
-            ax[0].set_ylabel('midi note numbers')
-            for j, t in enumerate(x):
-                x_val = np.arange(t[0], t[1], 0.1)
-                y_val = np.full(len(x_val), y[j])
-                ax[0].plot(x_val, y_val)
-                ax[0].vlines(t[0], ymin=52, ymax=100, linestyles='dotted')
-            # techique transcription
-            ax[1].set_title('Technique')
-            ax[1].set_xlabel('time (t)')
-            ax[1].set_ylabel('midi note numbers')
-            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ['no_tech', 'normal', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
-            for j, t in enumerate(x_tech):
-                x_val = np.arange(t[0], t[1], 0.1)
-                y_val = np.full(len(x_val), y_tech[j])
-                ax[1].plot(x_val, y_val)
-                ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
-        writer.add_figure('transcription/ground_truth', fig, ep)
             
-
         # when the spectrogram adds adversarial direction
         if predictions['r_adv'] is not None: 
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
@@ -195,6 +165,34 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         fig = plt.figure(constrained_layout=True, figsize=(48,20))
         subfigs = fig.subfigures(2, 2)
         subfigs = subfigs.flat
+        for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'])):
+            subfigs[i].suptitle(f'Transcription {i}')
+            ax = subfigs[i].subplots(2,1)
+            ax = ax.flat
+            # note transcription
+            ax[0].set_title('Note')
+            ax[0].set_xlabel('time (t)')
+            ax[0].set_ylabel('midi note numbers')
+            for j, t in enumerate(x):
+                x_val = np.arange(t[0], t[1], 0.1)
+                y_val = np.full(len(x_val), y[j])
+                ax[0].plot(x_val, y_val)
+                ax[0].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
+            # techique transcription
+            ax[1].set_title('Technique')
+            ax[1].set_xlabel('time (t)')
+            ax[1].set_ylabel('technique')
+            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ['no_tech', 'normal', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
+            for j, t in enumerate(x_tech):
+                x_val = np.arange(t[0], t[1], 0.1)
+                y_val = np.full(len(x_val), y_tech[j])
+                ax[1].plot(x_val, y_val)
+                ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
+        writer.add_figure('transcription/ground_truth', fig, ep)
+
+        fig = plt.figure(constrained_layout=True, figsize=(48,20))
+        subfigs = fig.subfigures(2, 2)
+        subfigs = subfigs.flat
         for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'])):
             subfigs[i].suptitle(f'Transcription {i}')
             ax = subfigs[i].subplots(2,1)
@@ -207,11 +205,11 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 x_val = np.arange(t[0], t[1], 0.1)
                 y_val = np.full(len(x_val), y[j])
                 ax[0].plot(x_val, y_val)
-                ax[0].vlines(t[0], ymin=52, ymax=100, linestyles='dotted')
+                ax[0].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
             # techique transcription
             ax[1].set_title('Technique')
             ax[1].set_xlabel('time (t)')
-            ax[1].set_ylabel('midi note numbers')
+            ax[1].set_ylabel('technique')
             ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ['no_tech', 'normal', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
             for j, t in enumerate(x_tech):
                 x_val = np.arange(t[0], t[1], 0.1)
@@ -292,7 +290,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     axvert.margins(y=0)
         writer.add_figure('images/Attention', fig , ep) 
 
-def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0, tech_weights=None):
+def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
     model.train()
     batch_size = l_loader.batch_size
     total_loss = 0
@@ -304,10 +302,10 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
         batch_l = next(l_loader)
         
         if (ep < VAT_start) or (VAT==False):
-            predictions, losses, _ = model.run_on_batch(batch_l, None, False, tech_weights)
+            predictions, losses, _ = model.run_on_batch(batch_l, None, False)
         else:
             batch_ul = next(ul_loader)
-            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT, tech_weights)
+            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT)
 
         loss = 0
         # tweak the loss
@@ -356,6 +354,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     
     # get weight of tech label for BCE loss
     tech_weights = compute_dataset_weight(device)
+    # tech_weights = None
     # not consider the weight of note here
 
     print("supervised_set: ", len(supervised_set))
@@ -369,7 +368,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     # model setting
     ds_ksize, ds_stride = (2,2),(2,2)     
     model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
-                    mode=mode, spec=spec, device=device, XI=XI, eps=eps)
+                    mode=mode, spec=spec, device=device, XI=XI, eps=eps, weights=tech_weights)
     model.to(device)
     if resume_iteration is None:  
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
@@ -387,10 +386,10 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     for ep in tqdm(range(1, epoches+1)):
         if VAT==True:
             predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, tech_weights)
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)
         else:
             predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start, tech_weights)            
+                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)            
         loss = sum(losses.values())
 
         # Logging results to tensorboard

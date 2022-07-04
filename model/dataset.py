@@ -55,6 +55,7 @@ class AudioDataset(Dataset):
             result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
         else:
             # result['audio'] = data['audio'].to(self.device)
+            # result['tech_group_label'] = data['tech_group_label'].to(self.device).float()
             result['tech_label'] = data['tech_label'].to(self.device).float()
 
 
@@ -125,8 +126,12 @@ class AudioDataset(Dataset):
         # labels' time steps
         all_steps = audio_length  // HOP_LENGTH  
         # 0 means silence (not lead guitar)
-        tech_label = torch.zeros(all_steps, dtype=torch.uint8)
-        note_label = torch.zeros(all_steps, dtype=torch.uint8)
+        silent_label = torch.zeros(all_steps, dtype=torch.int8)
+        tech_group_label = torch.zeros(all_steps, dtype=torch.int8)
+        tech_state_label = torch.zeros(all_steps, dtype=torch.int8)
+        tech_label = torch.zeros(all_steps, dtype=torch.int8)
+        note_state_label = torch.zeros(all_steps, dtype=torch.int8)
+        note_label = torch.zeros(all_steps, dtype=torch.int8)
 
         # load labels(start, duration, techniques)
         all_tech = np.loadtxt(tech_tsv_path, delimiter='\t', skiprows=1)
@@ -139,7 +144,22 @@ class AudioDataset(Dataset):
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
 
+            silent_label[left:right] = 1 # not silent
+
+            if technique == 1: # normal
+                tech_group_label[left:right] = 1
+            elif technique == 2 or technique == 3 or technique == 4: # slide, bend, trill
+                tech_group_label[left:right] = 2
+            elif technique == 6 or technique == 8 or technique == 9: # pull, hammer, tap
+                tech_group_label[left:right] = 3
+            elif technique == 5 or technique == 7: # harmonic, mute
+                tech_group_label[left:right] = 4
+
+            tech_state_label[left] = 1 # onset
+            tech_state_label[left + 1: right] = 2 # activate
+
             tech_label[left:right] = technique
+
         # processing note labels
         for start, end, note in all_note:
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
@@ -148,13 +168,21 @@ class AudioDataset(Dataset):
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
 
+            note_state_label[left] = 1 # onset
+            note_state_label[left + 1: right] = 2 # activate
+
             note_label[left:right] = note
         
-        ##### concat tech and note label #####
-        # % 52 because the lowest note is 52
-        note_label_onehot = F.one_hot(note_label.to(torch.int64) % 52, num_classes=49)
+        ##### concat all one-hot label #####
+        silent_label = F.one_hot(silent_label.to(torch.int64), num_classes=2)
+        # tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=5)
+        tech_state_label = F.one_hot(tech_state_label.to(torch.int64), num_classes=3)
+        note_state_label = F.one_hot(note_state_label.to(torch.int64), num_classes=3)
+
+        # 0 % 51 = 0 means no note (the lowest note is 52)
+        note_label_onehot = F.one_hot(note_label.to(torch.int64) % 51, num_classes=50)
         tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=10)
-        label = torch.cat((tech_label_onehot, note_label_onehot), 1)
+        label = torch.cat((silent_label, tech_state_label, tech_label_onehot, note_state_label, note_label_onehot), 1)
 
         data = dict(path=audio_path, audio=audio, tech_label=tech_label, label=label)
         torch.save(data, saved_data_path)
@@ -224,7 +252,18 @@ def compute_dataset_weight(device):
         y.extend(data['tech_label'].detach().cpu().numpy())
     tech_weights = compute_class_weight('balanced', np.unique(y), y)
     tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
-    note_weights = torch.ones(49, dtype=torch.float).to(device)
-    class_weights = torch.cat((tech_weights, note_weights), 0)
+
+    # y = []
+    # for data in train_set:
+    #     y.extend(data['tech_group_label'].detach().cpu().numpy())
+    # tech_group_weights = compute_class_weight('balanced', np.unique(y), y)
+    # tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
+
+    silent_weights = torch.ones(2, dtype=torch.float).to(device)
+    tech_state_weights = torch.ones(3, dtype=torch.float).to(device) 
+    # tech_weights = torch.ones(10, dtype=torch.float).to(device) 
+    note_state_weights = torch.ones(3, dtype=torch.float).to(device) 
+    note_weights = torch.ones(50, dtype=torch.float).to(device)
+    class_weights = torch.cat((silent_weights, tech_state_weights, tech_weights, note_state_weights, note_weights), 0)
 
     return class_weights

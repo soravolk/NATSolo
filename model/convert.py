@@ -25,6 +25,12 @@ def get_confusion_matrix(correct_labels, predict_labels):
 
     return cm, cm_recall, cm_precision
 
+def evaluate_frame_accuracy(correct_labels, predict_labels):
+    matched = 0
+    for ref, est in zip(correct_labels, predict_labels):
+        if ref == est:
+            matched += 1
+    return matched / len(correct_labels)
 
 def extract_technique(tech):
     """
