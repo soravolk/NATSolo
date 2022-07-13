@@ -140,11 +140,17 @@ class AudioDataset(Dataset):
         for start, end, technique in all_tech:
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
             left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
+            if left < 2:
+                left = 2
+            elif left > all_steps - 2:
+                left = all_steps - 2
 
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
+            if right > all_steps - 2:
+                right = all_steps - 2
 
-            silent_label[left:right] = 1 # not silent
+            silent_label[left - 2: right + 2] = 1 # not silent
 
             if technique == 1: # normal
                 tech_group_label[left:right] = 1
@@ -155,8 +161,9 @@ class AudioDataset(Dataset):
             elif technique == 5 or technique == 7: # harmonic, mute
                 tech_group_label[left:right] = 4
 
-            tech_state_label[left] = 1 # onset
-            tech_state_label[left + 1: right] = 2 # activate
+
+            tech_state_label[left - 2: left + 2] = 1 # onset
+            tech_state_label[left + 2: right] = 2 # activate
 
             tech_label[left:right] = technique
 
@@ -168,8 +175,8 @@ class AudioDataset(Dataset):
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
 
-            note_state_label[left] = 1 # onset
-            note_state_label[left + 1: right] = 2 # activate
+            note_state_label[left - 2: left + 2] = 1 # onset
+            note_state_label[left + 2: right] = 2 # activate
 
             note_label[left:right] = note
         
@@ -259,10 +266,10 @@ def compute_dataset_weight(device):
     # tech_group_weights = compute_class_weight('balanced', np.unique(y), y)
     # tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
 
-    silent_weights = torch.ones(2, dtype=torch.float).to(device)
-    tech_state_weights = torch.ones(3, dtype=torch.float).to(device) 
+    silent_weights = torch.ones(2, dtype=torch.float).to(device) * 2
+    tech_state_weights = torch.ones(3, dtype=torch.float).to(device) * 2
     # tech_weights = torch.ones(10, dtype=torch.float).to(device) 
-    note_state_weights = torch.ones(3, dtype=torch.float).to(device) 
+    note_state_weights = torch.ones(3, dtype=torch.float).to(device) * 2
     note_weights = torch.ones(50, dtype=torch.float).to(device)
     class_weights = torch.cat((silent_weights, tech_state_weights, tech_weights, note_state_weights, note_weights), 0)
 

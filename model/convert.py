@@ -32,7 +32,22 @@ def evaluate_frame_accuracy(correct_labels, predict_labels):
             matched += 1
     return matched / len(correct_labels)
 
-def extract_technique(tech):
+def evaluate_frame_accuracy_per_tech(tech, correct_labels, predict_labels):
+    
+    accuracy_per_tech = torch.zeros(10, 2) # [[# note, # ac note], [], ... ]
+    accuracy = torch.zeros(10)
+    for tech, ref, est in zip(tech, correct_labels, predict_labels):
+        accuracy_per_tech[tech][0] += 1
+        if ref == est:
+            accuracy_per_tech[tech][1] += 1
+    
+    for i in range(len(accuracy_per_tech)):
+        # accuracy
+        accuracy[i] = accuracy_per_tech[i][1] / accuracy_per_tech[i][0]
+    
+    return accuracy
+
+def extract_technique(tech, state=None):
     """
     Finds the note timings based on the onsets and tech information
     Parameters
@@ -55,17 +70,30 @@ def extract_technique(tech):
 
     # get the interval of every technique
     i = 0
-    while i < len(tech):
-        technique = tech[i]
+    if state is None:
+        while i < len(tech):
+            technique = tech[i]
 
-        onset = i
-        offset = i
-        while offset < len(tech) and tech[offset] == technique:
-            offset += 1
-        # After knowing where does the note start and end, we can return the technique information
-        techniques.append(technique)
-        intervals.append([onset, offset - 0.1]) # offset - 1
-        i = offset
+            onset = i
+            offset = i
+            while offset < len(tech) and tech[offset] == technique:
+                offset += 1
+            # After knowing where does the note start and end, we can return the technique information
+            techniques.append(technique)
+            intervals.append([onset, offset - 0.1]) # offset - 1
+            i = offset
+    else:
+        while i < len(tech):
+            if state[i] == 1: # tech onset at frame i
+                onset_tech = tech[i]
+                onset = i
+                i += 1
+                while i < len(tech) and state[i] != 1:
+                    i += 1
+                techniques.append(onset_tech)
+                intervals.append([onset, i - 0.1])          
+            else:
+                i += 1
 
     return np.array(techniques), np.array(intervals)
 
@@ -91,7 +119,7 @@ def techniques_to_frames(techniques, intervals, shape):
     tehcniques = [roll[t, :].nonzero()[0] for t in time]
     return time, tehcniques
 
-def extract_notes(notes, onset_threshold=0.5, frame_threshold=0.5):
+def extract_notes(notes):
     """
     Finds the note timings based on the onsets and frames information
     Parameters

@@ -35,7 +35,9 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         pred, losses, _ = model.run_on_batch(val_data, None, False)
         # tech_label = val_data['label'][:,10:20].argmax(axis=1) # only one label file
         # note_label = val_data['label'][:,23:].argmax(axis=1)
-        tech_label = val_data['label'][:,5:15].argmax(axis=1) # only one label file
+        
+        # get label from one hot vector
+        tech_label = val_data['label'][:,5:15].argmax(axis=1)
         note_label = val_data['label'][:,18:].argmax(axis=1)
         for key, loss in losses.items():
             metrics[key].append(loss.item())
@@ -87,7 +89,12 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         metrics['metric/note/precision'].append(p)
         metrics['metric/note/recall'].append(r)
         metrics['metric/note/f1'].append(f)
-        metrics['metric/note/overlap'].append(o)     
+        metrics['metric/note/overlap'].append(o)
+
+        a = evaluate_frame_accuracy_per_tech(tech_label, note_label, pred['note'])
+        for key, value in technique_dict.items():
+            a_single_tech = a[key]
+            metrics[f'metric/{value}/accuracy'].append(a_single_tech) # this is note_accuracy
 
         # p, r, f, o = evaluate_notes(note_i_ref, note_ref_hz, note_i_est, note_est_hz)
         # metrics['metric/note-with-offsets/precision'].append(p)

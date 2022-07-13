@@ -502,6 +502,24 @@ class UNet(nn.Module):
           tech_note_pred, a = self(spec)
           # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
           tech_note_pred = tech_note_pred[:, :gt_bin, :]
+          '''
+          TODO: utilize state info to preprocess pred before calculate loss
+          '''
+        #   for i in range(len(tech_note_pred)):
+        #     j = 0
+        #     while j < gt_bin:
+        #         if tech_note_pred[i, j, 2:5].reshape(-1, 3).argmax(axis=1) == 1: # tech onset at frame j
+        #             onset_tech = tech_note_pred[i, j, 5:15]
+        #             j = j + 1
+        #             print('find_onset')
+        #             while j < gt_bin and tech_note_pred[i, j, 3] != 1:
+        #                 # if not onset -> replace with the tech at onset
+        #                 tech_note_pred[i, j, 5:15] = onset_tech
+        #                 j = j + 1
+        #         else:
+        #             print('tech_state: ', tech_note_pred[i, j, 3])
+        #             j = j + 1
+
           if self.training:
               predictions = {
                       'tech_note': tech_note_pred.reshape(-1, 68),
