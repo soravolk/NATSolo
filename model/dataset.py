@@ -140,17 +140,11 @@ class AudioDataset(Dataset):
         for start, end, technique in all_tech:
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
             left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
-            if left < 2:
-                left = 2
-            elif left > all_steps - 2:
-                left = all_steps - 2
 
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
-            if right > all_steps - 2:
-                right = all_steps - 2
 
-            silent_label[left - 2: right + 2] = 1 # not silent
+            # silent_label[left - 2: right + 2] = 1 # not silent
 
             if technique == 1: # normal
                 tech_group_label[left:right] = 1
@@ -162,8 +156,8 @@ class AudioDataset(Dataset):
                 tech_group_label[left:right] = 4
 
 
-            tech_state_label[left - 2: left + 2] = 1 # onset
-            tech_state_label[left + 2: right] = 2 # activate
+            # tech_state_label[left - 2: left + 2] = 1 # onset
+            # tech_state_label[left + 2: right] = 2 # activate
 
             tech_label[left:right] = technique
 
@@ -171,6 +165,10 @@ class AudioDataset(Dataset):
         for start, end, note in all_note:
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
             left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
+            if left < 2:
+                left = 2
+            elif left > all_steps - 2:
+                left = all_steps - 2
 
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
@@ -181,15 +179,15 @@ class AudioDataset(Dataset):
             note_label[left:right] = note
         
         ##### concat all one-hot label #####
-        silent_label = F.one_hot(silent_label.to(torch.int64), num_classes=2)
+        # silent_label = F.one_hot(silent_label.to(torch.int64), num_classes=2)
         # tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=5)
-        tech_state_label = F.one_hot(tech_state_label.to(torch.int64), num_classes=3)
+        # tech_state_label = F.one_hot(tech_state_label.to(torch.int64), num_classes=3)
         note_state_label = F.one_hot(note_state_label.to(torch.int64), num_classes=3)
 
         # 0 % 51 = 0 means no note (the lowest note is 52)
         note_label_onehot = F.one_hot(note_label.to(torch.int64) % 51, num_classes=50)
         tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=10)
-        label = torch.cat((silent_label, tech_state_label, tech_label_onehot, note_state_label, note_label_onehot), 1)
+        label = torch.cat((note_state_label, note_label_onehot, tech_label_onehot), 1)
 
         data = dict(path=audio_path, audio=audio, tech_label=tech_label, label=label)
         torch.save(data, saved_data_path)
@@ -266,11 +264,11 @@ def compute_dataset_weight(device):
     # tech_group_weights = compute_class_weight('balanced', np.unique(y), y)
     # tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
 
-    silent_weights = torch.ones(2, dtype=torch.float).to(device) * 2
-    tech_state_weights = torch.ones(3, dtype=torch.float).to(device) * 2
+    # silent_weights = torch.ones(2, dtype=torch.float).to(device) * 2
+    # tech_state_weights = torch.ones(3, dtype=torch.float).to(device)
     # tech_weights = torch.ones(10, dtype=torch.float).to(device) 
-    note_state_weights = torch.ones(3, dtype=torch.float).to(device) * 2
+    # note_state_weights = torch.ones(3, dtype=torch.float).to(device)
     note_weights = torch.ones(50, dtype=torch.float).to(device)
-    class_weights = torch.cat((silent_weights, tech_state_weights, tech_weights, note_state_weights, note_weights), 0)
+    class_weights = torch.cat((note_weights, tech_weights), 0)
 
     return class_weights

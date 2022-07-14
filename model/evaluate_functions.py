@@ -37,8 +37,9 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         # note_label = val_data['label'][:,23:].argmax(axis=1)
         
         # get label from one hot vector
-        tech_label = val_data['label'][:,5:15].argmax(axis=1)
-        note_label = val_data['label'][:,18:].argmax(axis=1)
+        note_label = val_data['label'][:,3:53].argmax(axis=1)
+        tech_label = val_data['label'][:,53:].argmax(axis=1)
+
         for key, loss in losses.items():
             metrics[key].append(loss.item())
 
@@ -75,7 +76,6 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         pred['note'].squeeze_(0)
         note_ref, note_i_ref = extract_notes(note_label)
         note_est, note_i_est = extract_notes(pred['note'])
-
         # Converting time steps to seconds and midi number to frequency
 
         note_i_ref = (note_i_ref * scaling).reshape(-1, 2)
