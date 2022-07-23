@@ -189,14 +189,16 @@ class Spec2Roll(nn.Module):
         super().__init__() 
         self.Unet1_encoder = Encoder(ds_ksize, ds_stride)
         self.Unet1_decoder = Decoder(ds_ksize, ds_stride, 1)
-        # dont know why use N_BINS+3
-        self.lstm1 = MutliHeadAttention1D(N_BINS+3, N_BINS*complexity, 31, position=True, groups=complexity)
+        self.Unet2_encoder = Encoder(ds_ksize, ds_stride)
+        self.Unet2_decoder = Decoder(ds_ksize, ds_stride, 1)
+        # dont know why use N_BINS+7
+        self.lstm1 = MutliHeadAttention1D(N_BINS+7, N_BINS*complexity, 31, position=True, groups=complexity)
         # self.lstm1 = nn.LSTM(N_BINS, N_BINS, batch_first=True, bidirectional=True)    
-        self.linear1 = nn.Linear(N_BINS*complexity, 63) # 3 note state + 50 notes + 10 techniques
-        self.linear_state = nn.Linear(N_BINS, 3)
-        self.linear_notetech = nn.Linear(N_BINS, 60)
+        # self.linear1 = nn.Linear(N_BINS*complexity, 65) # 3 note state + 50 notes + 10 techniques
+        self.linear_state = nn.Linear(N_BINS, 7)
+        self.linear_notetech = nn.Linear(N_BINS, 59)
         self.dropout_layer = nn.Dropout(0.5)
-        self.combine_stack = Stack(input_size=63, hidden_dim=768, attn_size=31, attn_group=6, output_dim=60, dropout=0)
+        self.combine_stack = Stack(input_size=66, hidden_dim=768, attn_size=31, attn_group=6, output_dim=59, dropout=0)
 
         # self.linear_feature = nn.Linear(N_BINS, 10)
         # self.feat_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=10, dropout=0)
@@ -205,6 +207,9 @@ class Spec2Roll(nn.Module):
         # U-net 1
         x,s,c = self.Unet1_encoder(x)
         x = self.Unet1_decoder(x,s,c)
+        # x_enc,s,c = self.Unet2_encoder(x)
+        # tech_note_post = self.Unet2_decoder(x_enc,s,c)
+
         state = self.linear_state(x)
         state = torch.sigmoid(state)
 
@@ -213,12 +218,24 @@ class Spec2Roll(nn.Module):
         onset = False
         for i, audio in enumerate(tech_note):
             for j, frame in enumerate(audio[0]):
-                if (state[i].squeeze(0))[j].argmax(axis=0) == 1:
+                frame_state = (state[i].squeeze(0))[j][:3].argmax(axis=0)
+                tech_group = (state[i].squeeze(0))[j][3:].argmax(axis=0)
+                tech_pred = frame[50:].argmax(axis=0)
+                if frame_state == 1:
                     onset = True
-                elif (state[i].squeeze(0))[j].argmax(axis=0) == 0:
+                elif frame_state == 0:
                     onset = False
+                
                 if onset == False:
                     frame.detach()
+                elif tech_group == 0:
+                    frame[50:].detach()
+                elif tech_group == 1 and ((tech_pred == 1 or tech_pred == 2 or tech_pred == 3) == False): 
+                    frame[50:].detach()
+                elif tech_group == 2 and ((tech_pred == 5 or tech_pred == 7 or tech_pred == 9) == False): 
+                    frame[50:].detach()
+                elif tech_group == 3 and ((tech_pred == 4 or tech_pred == 6) == False): 
+                    frame[50:].detach()
 
         x = torch.cat((state, tech_note), -1)
         x, a = self.combine_stack(x.squeeze(1))
@@ -400,8 +417,8 @@ class UNet(nn.Module):
           label = batch['label'].unsqueeze(0)
       else:
           label = batch['label'] # tech + note
-      state_label = label[:, :, :3]
-      note_tech_label = label[:, :, 3:]
+      state_label = label[:, :, :7]
+      note_tech_label = label[:, :, 7:]
       # technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
       # use the weight for the unbalanced tech label
       # tech_criterion = nn.CrossEntropyLoss(weight=tech_weights, reduction='mean')
@@ -535,10 +552,11 @@ class UNet(nn.Module):
                     #   'tech': tech_note_pred[:,:,10:20].reshape(-1, 10),
                     #   'note_state': tech_note_pred[:,:,20:23].reshape(-1, 3),
                     #   'note': tech_note_pred[:,:,23:].reshape(-1, 50),
-                      'tech_note': tech_note_pred.reshape(-1, 60),
-                      'state': state_pred.reshape(-1, 3),
+                      'tech_note': tech_note_pred.reshape(-1, 59),
+                      'note_state': state_pred[:,:,:3].reshape(-1, 3),
+                      'tech_group': state_pred[:,:,3:].reshape(-1, 4),
                       'note': tech_note_pred[:,:,:50].reshape(-1, 50),
-                      'tech': tech_note_pred[:,:,50:].reshape(-1, 10),
+                      'tech': tech_note_pred[:,:,50:].reshape(-1, 9),
                       'r_adv': r_adv,
                       'attention': a,
                       }
@@ -561,10 +579,11 @@ class UNet(nn.Module):
                     #   'tech': tech_note_pred[:,:,10:20].reshape(-1, 10).argmax(axis=1).reshape(-1, gt_bin),
                     #   'note_state': tech_note_pred[:,:,20:23].reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
                     #   'note': tech_note_pred[:,:,23:].reshape(-1, 50).argmax(axis=1).reshape(-1, gt_bin),
-                      'tech_note': tech_note_pred.reshape(-1, 60),
-                      'state': state_pred.reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
+                      'tech_note': tech_note_pred.reshape(-1, 59),
+                      'note_state': state_pred[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
+                      'tech_group': state_pred[:,:,3:].reshape(-1, 4).argmax(axis=1).reshape(-1, gt_bin),
                       'note': tech_note_pred[:,:,:50].reshape(-1, 50).argmax(axis=1).reshape(-1, gt_bin),
-                      'tech': tech_note_pred[:,:,50:].reshape(-1, 10).argmax(axis=1).reshape(-1, gt_bin),
+                      'tech': tech_note_pred[:,:,50:].reshape(-1, 9).argmax(axis=1).reshape(-1, gt_bin),
                       'r_adv': r_adv,
                       'attention': a,
                       }                        

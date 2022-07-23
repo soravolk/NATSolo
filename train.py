@@ -59,7 +59,7 @@ def config():
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 10000 # 20000
+    epoches = 8000 # 20000
     step_size_up = 100
     max_lr = 1e-4
     learning_rate = 1e-3
@@ -69,7 +69,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_onsetAndFrame'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_OneUnetNoteStateAndFrame'
     
     ex.observers.append(FileStorageObserver.create(logdir)) # saving source code
 
@@ -78,27 +78,25 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     VAT, VAT_start, reconstruction, tech_weights=None):
     technique_dict = {
         0: 'no tech',
-        1: 'normal', 
-        2: 'slide',
-        3: 'bend',
-        4: 'trill',
-        5: 'mute',
-        6: 'pull',
-        7: 'harmonic',
-        8: 'hammer',
-        9: 'tap'
+        1: 'slide',
+        2: 'bend',
+        3: 'trill',
+        4: 'mute',
+        5: 'pull',
+        6: 'harmonic',
+        7: 'hammer',
+        8: 'tap'
     }
     tech_trans = {
         0: '0',
-        1: '1', 
-        2: 's',
-        3: 'b',
-        4: 'tri',
-        5: 'x',
-        6: 'p',
-        7: 'har',
-        8: 'h',
-        9: 't'
+        1: 's',
+        2: 'b',
+        3: 'tri',
+        4: 'x',
+        5: 'p',
+        6: 'har',
+        7: 'h',
+        8: 't'
     }
     # log various result from the validation audio
     model.eval()
@@ -176,12 +174,12 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             ax[1].set_title('Technique')
             ax[1].set_xlabel('time (t)')
             ax[1].set_ylabel('technique')
-            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ['no_tech', 'normal', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
+            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8], ['no_tech', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
             for j, t in enumerate(x_tech):
                 x_val = np.arange(t[0], t[1], 0.1)
                 y_val = np.full(len(x_val), y_tech[j])
                 ax[1].plot(x_val, y_val)
-                ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
+                ax[1].vlines(t[0], ymin=0, ymax=8, linestyles='dotted')
         writer.add_figure('transcription/ground_truth', fig, ep)
 
         fig = plt.figure(constrained_layout=True, figsize=(48,20))
@@ -204,12 +202,12 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             ax[1].set_title('Technique')
             ax[1].set_xlabel('time (t)')
             ax[1].set_ylabel('technique')
-            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], ['no_tech', 'normal', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
+            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8], ['no_tech', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
             for j, t in enumerate(x_tech):
                 x_val = np.arange(t[0], t[1], 0.1)
                 y_val = np.full(len(x_val), y_tech[j])
                 ax[1].plot(x_val, y_val)
-                ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
+                ax[1].vlines(t[0], ymin=0, ymax=8, linestyles='dotted')
         writer.add_figure('transcription/prediction', fig, ep)
         
         #another representation of transcription
@@ -407,7 +405,8 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight of tech label for BCE loss
-    tech_weights = compute_dataset_weight(device)
+    tech_weights=None
+    # tech_weights = compute_dataset_weight(device)
     # tech_weights = None
     # not consider the weight of note here
 

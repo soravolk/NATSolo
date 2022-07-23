@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 def get_confusion_matrix(correct_labels, predict_labels):
-    labels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    labels = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
     cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
 
@@ -34,8 +34,8 @@ def evaluate_frame_accuracy(correct_labels, predict_labels):
 
 def evaluate_frame_accuracy_per_tech(tech, correct_labels, predict_labels):
     
-    accuracy_per_tech = torch.zeros(10, 2) # [[# note, # ac note], [], ... ]
-    accuracy = torch.zeros(10)
+    accuracy_per_tech = torch.zeros(9, 2) # [[# note, # ac note], [], ... ]
+    accuracy = torch.zeros(9)
     for tech, ref, est in zip(tech, correct_labels, predict_labels):
         accuracy_per_tech[tech][0] += 1
         if ref == est:
@@ -47,7 +47,7 @@ def evaluate_frame_accuracy_per_tech(tech, correct_labels, predict_labels):
     
     return accuracy
 
-def extract_technique(tech, state=None):
+def extract_technique(tech, states=None):
     """
     Finds the note timings based on the onsets and tech information
     Parameters
@@ -70,28 +70,41 @@ def extract_technique(tech, state=None):
 
     # get the interval of every technique
     i = 0
-    if state is None:
-        while i < len(tech):
+    rb = len(tech)
+    if states is None:
+        while i < rb:
             technique = tech[i]
+
+            if technique == 0:
+                i += 1
+                continue
 
             onset = i
             offset = i
-            while offset < len(tech) and tech[offset] == technique:
+            while offset < rb and tech[offset] == technique:
                 offset += 1
             # After knowing where does the note start and end, we can return the technique information
             techniques.append(technique)
             intervals.append([onset, offset - 0.1]) # offset - 1
             i = offset
     else:
-        while i < len(tech):
-            if state[i] == 1: # tech onset at frame i
-                onset_tech = tech[i]
+        while i < rb:
+            if tech[i] != 0 and states[i] == 1: # tech onset at frame i:
                 onset = i
-                i += 1
-                while i < len(tech) and state[i] != 1:
+                onset_tech = tech[i]
+                while i + 1 < rb and states[i + 1] == 1:
                     i += 1
+                i += 1
+                if i >= rb:
+                    break
+                if states[i] == 0 or onset_tech == 0:
+                    continue
+
+                offset = i
+                while offset < rb and states[offset] == 2:
+                    offset += 1
                 techniques.append(onset_tech)
-                intervals.append([onset, i - 0.1])          
+                intervals.append([onset, offset - 0.1])          
             else:
                 i += 1
 
@@ -119,7 +132,7 @@ def techniques_to_frames(techniques, intervals, shape):
     tehcniques = [roll[t, :].nonzero()[0] for t in time]
     return time, tehcniques
 
-def extract_notes(notes):
+def extract_notes(notes, states=None, groups=None):
     """
     Finds the note timings based on the onsets and frames information
     Parameters
@@ -140,18 +153,53 @@ def extract_notes(notes):
     pitches = []
     intervals = []
 
-    # get the interval of every note
-    i = 0
-    while i < len(notes):
-        note = notes[i]
-        onset = i
-        offset = i
+    if states is None:
+        # get the interval of every note
+        i = 0
+        while i < len(notes):
+            note = notes[i]
+            if note == 0:
+                i += 1
+                continue
+            onset = i
+            offset = i
 
-        while offset < len(notes) and notes[offset] == note:
-            offset += 1
-        # After knowing where does the note start and end, we can return the note information
-        pitches.append(note)
-        intervals.append([onset, offset - 0.1]) # offset - 1
-        i = offset
+            while offset < len(notes) and notes[offset] == note:
+                offset += 1
+            # After knowing where does the note start and end, we can return the note information
+            pitches.append(note)
+            intervals.append([onset, offset - 0.1]) # offset - 1
+            i = offset
+    else:
+        states = states.to(torch.int8).cpu()
+        # a valid note must come with the onset state
+        i = 0
+        rb = len(notes)
+        while i < rb:
+            # onset
+            if notes[i] != 0 and states[i] == 1:
+                # find an onset if there are consecutive onsets
+                # the next frame after an onset frame must be the activate state
+                onset = i
+                cur_note = notes[onset]
+                while i + 1 < rb and states[i + 1] == 1 and notes[i + 1] == cur_note:
+                    i += 1
+                i += 1
+                if i >= rb:
+                    break
+                if cur_note == 0:
+                    continue
+                if states[i] == 0 and groups[i] != 2:
+                    continue
+                
+                offset = i
+                while offset < rb and states[offset] == 2 and notes[offset] == cur_note:
+                    offset += 1                 
+                pitches.append(cur_note)
+                intervals.append([onset, offset - 0.1])
+                i = offset
+            else:
+                i += 1
+
 
     return np.array(pitches), np.array(intervals)

@@ -17,15 +17,14 @@ eps = sys.float_info.epsilon
 def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstruction=True, tech_weights=None):
     technique_dict = {
         0: 'no tech',
-        1: 'normal', 
-        2: 'slide',
-        3: 'bend',
-        4: 'trill',
-        5: 'mute',
-        6: 'pull',
-        7: 'harmonic',
-        8: 'hammer',
-        9: 'tap'
+        1: 'slide',
+        2: 'bend',
+        3: 'trill',
+        4: 'mute',
+        5: 'pull',
+        6: 'harmonic',
+        7: 'hammer',
+        8: 'tap'
     }
 
     metrics = defaultdict(list) # a safe dict
@@ -37,8 +36,10 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         # note_label = val_data['label'][:,23:].argmax(axis=1)
         
         # get label from one hot vector
-        note_label = val_data['label'][:,3:53].argmax(axis=1)
-        tech_label = val_data['label'][:,53:].argmax(axis=1)
+        state_label = val_data['label'][:,:3].argmax(axis=1)
+        group_label = val_data['label'][:,3:7].argmax(axis=1)
+        note_label = val_data['label'][:,7:57].argmax(axis=1)
+        tech_label = val_data['label'][:,57:].argmax(axis=1)
 
         for key, loss in losses.items():
             metrics[key].append(loss.item())
@@ -68,14 +69,16 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
 
         # get techinique and interval
         pred['tech'].squeeze_(0)
-        tech_ref, tech_i_ref = extract_technique(tech_label)
-        tech_est, tech_i_est = extract_technique(pred['tech'])
+        pred['note_state'].squeeze_(0)
+        tech_ref, tech_i_ref = extract_technique(tech_label, state_label)
+        tech_est, tech_i_est = extract_technique(pred['tech'], pred['note_state'])
         tech_i_ref = (tech_i_ref * scaling).reshape(-1, 2)
         tech_i_est = (tech_i_est * scaling).reshape(-1, 2)
         ############ evaluate notes ############
         pred['note'].squeeze_(0)
-        note_ref, note_i_ref = extract_notes(note_label)
-        note_est, note_i_est = extract_notes(pred['note'])
+        pred['tech_group'].squeeze_(0)
+        note_ref, note_i_ref = extract_notes(note_label, state_label, group_label)
+        note_est, note_i_est = extract_notes(pred['note'], pred['note_state'], pred['tech_group'])
         # Converting time steps to seconds and midi number to frequency
 
         note_i_ref = (note_i_ref * scaling).reshape(-1, 2)

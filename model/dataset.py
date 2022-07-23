@@ -126,18 +126,19 @@ class AudioDataset(Dataset):
         # labels' time steps
         all_steps = audio_length  // HOP_LENGTH  
         # 0 means silence (not lead guitar)
-        silent_label = torch.zeros(all_steps, dtype=torch.int8)
         tech_group_label = torch.zeros(all_steps, dtype=torch.int8)
-        tech_state_label = torch.zeros(all_steps, dtype=torch.int8)
         tech_label = torch.zeros(all_steps, dtype=torch.int8)
         note_state_label = torch.zeros(all_steps, dtype=torch.int8)
-        note_label = torch.zeros(all_steps, dtype=torch.int8)
+        note_label = torch.ones(all_steps, dtype=torch.int8) * 51
 
         # load labels(start, duration, techniques)
         all_tech = np.loadtxt(tech_tsv_path, delimiter='\t', skiprows=1)
         all_note = np.loadtxt(note_tsv_path, delimiter='\t', skiprows=1)
         # processing tech labels
         for start, end, technique in all_tech:
+            if technique == 1: # normal
+                continue
+
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
             left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
 
@@ -145,21 +146,14 @@ class AudioDataset(Dataset):
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
 
             # silent_label[left - 2: right + 2] = 1 # not silent
-
-            if technique == 1: # normal
+            if technique == 2 or technique == 3 or technique == 4: # slide, bend, trill
                 tech_group_label[left:right] = 1
-            elif technique == 2 or technique == 3 or technique == 4: # slide, bend, trill
-                tech_group_label[left:right] = 2
             elif technique == 6 or technique == 8 or technique == 9: # pull, hammer, tap
-                tech_group_label[left:right] = 3
+                tech_group_label[left:right] = 2
             elif technique == 5 or technique == 7: # harmonic, mute
-                tech_group_label[left:right] = 4
+                tech_group_label[left:right] = 3
 
-
-            # tech_state_label[left - 2: left + 2] = 1 # onset
-            # tech_state_label[left + 2: right] = 2 # activate
-
-            tech_label[left:right] = technique
+            tech_label[left:right] = technique - 1
 
         # processing note labels
         for start, end, note in all_note:
@@ -173,23 +167,22 @@ class AudioDataset(Dataset):
             right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
 
-            note_state_label[left - 2: left + 2] = 1 # onset
-            note_state_label[left + 2: right] = 2 # activate
+            note_state_label[left: left + 3] = 1
+            # note_state_label[left - 2: left + 3] = 1 # onset
+            # note_state_label[left + 3: right] = 2 # activate
+            note_state_label[left + 3: right] = 2
 
             note_label[left:right] = note
         
         ##### concat all one-hot label #####
-        # silent_label = F.one_hot(silent_label.to(torch.int64), num_classes=2)
-        # tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=5)
-        # tech_state_label = F.one_hot(tech_state_label.to(torch.int64), num_classes=3)
         note_state_label = F.one_hot(note_state_label.to(torch.int64), num_classes=3)
-
+        tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=4)
         # 0 % 51 = 0 means no note (the lowest note is 52)
-        note_label_onehot = F.one_hot(note_label.to(torch.int64) % 51, num_classes=50)
-        tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=10)
-        label = torch.cat((note_state_label, note_label_onehot, tech_label_onehot), 1)
+        note_label_onehot = F.one_hot(note_label.to(torch.int64) - 51, num_classes=50)
+        tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=9)
+        label = torch.cat((note_state_label, tech_group_label_onehot, note_label_onehot, tech_label_onehot), 1)
 
-        data = dict(path=audio_path, audio=audio, tech_label=tech_label, label=label)
+        data = dict(path=audio_path, audio=audio, tech_group_label=tech_group_label, label=label)
         torch.save(data, saved_data_path)
         return data
 
