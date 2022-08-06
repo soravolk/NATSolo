@@ -32,8 +32,6 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
 
     for val_data in tqdm(data):
         pred, losses, _ = model.run_on_batch(val_data, None, False)
-        # tech_label = val_data['label'][:,10:20].argmax(axis=1) # only one label file
-        # note_label = val_data['label'][:,23:].argmax(axis=1)
         
         # get label from one hot vector
         state_label = val_data['label'][:,:3].argmax(axis=1)
@@ -121,28 +119,6 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
             transcriptions['tech_interval'].append(tech_i_est)
             transcriptions['note'].append(note_est + 51)
             transcriptions['note_interval'].append(note_i_est)
-
-        # if reconstruction:
-        #     correct_tech_labels = val_data['technique'].cpu().numpy()
-        #     predict_tech_labels = pred['technique2'].squeeze(0).cpu().numpy()
-        #     cm_2, cm_recall_2, cm_precision_2 = get_confusion_matrix(correct_tech_labels, predict_tech_labels)
-        #     # get the recall and precision of techniques
-        #     for key, value in technique_dict.items():
-        #         p = cm_precision_2[key][key]
-        #         r = cm_recall_2[key][key]
-        #         f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
-        #         metrics[f'metric/technique/{value}/precision_2'].append(p)
-        #         metrics[f'metric/technique/{value}/recall_2'].append(r)
-        #         metrics[f'metric/technique/{value}/f1_2'].append(f)
-
-        #     cm_dict = {
-        #         'cm': cm,
-        #         'Precision': cm_precision,
-        #         'Recall': cm_recall,
-        #         'cm_2': cm_2,
-        #         'Precision_2': cm_precision_2,
-        #         'Recall_2': cm_recall_2
-        #     }
 
         if save_path is not None:
             os.makedirs(save_path, exist_ok=True)

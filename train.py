@@ -64,7 +64,7 @@ def config():
     max_lr = 1e-4
     learning_rate = 5e-4
     learning_rate_decay_steps = 1000
-    learning_rate_decay_rate = 0.98
+    learning_rate_decay_rate = 0.8 #0.98
     clip_gradient_norm = 3
     validation_length = sequence_length
     refresh = False
@@ -151,7 +151,8 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             fig.tight_layout()
 
             writer.add_figure('images/Spec_adv', fig , ep)           
-    # Show the training result every period of epoch
+    ##################################################### 
+    # Show the transcription result in validation period
     if ep%logging_freq == 0:
         fig = plt.figure(constrained_layout=True, figsize=(48,20))
         subfigs = fig.subfigures(2, 2)
@@ -209,7 +210,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 ax[1].vlines(t[0], ymin=0, ymax=8, linestyles='dotted')
         writer.add_figure('transcription/prediction', fig, ep)
         
-        #another representation of transcription
+        # another representation of transcription
         fig = plt.figure(constrained_layout=True, figsize=(48,20))
         subfigs = fig.subfigures(2, 2)
         subfigs = subfigs.flat
@@ -267,8 +268,9 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 ax[1].plot(x_val, y_val)
                 ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
         writer.add_figure('transcription/prediction_B', fig, ep)
+        #####################################################
 
-
+        # Plot confusion matrix
         for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
             if output_key in cm_dict.keys():
                 if output_key in ['cm', 'cm_2']:
@@ -276,14 +278,14 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 else:
                     plot_confusion_matrix(cm_dict[output_key], technique_dict, writer, ep, output_key, f'images/{output_key}', '.2f', 6)
 
-        if 'reconstruction' in predictions.keys():
-            fig, axs = plt.subplots(2, 2, figsize=(24,8))
-            axs = axs.flat
-            for idx, i in enumerate(predictions['reconstruction'].cpu().detach().numpy().squeeze(1)):
-                axs[idx].imshow(i.transpose())
-                axs[idx].axis('off')
-            fig.tight_layout()
-            writer.add_figure('images/Reconstruction', fig , ep)                     
+        # if 'reconstruction' in predictions.keys():
+        #     fig, axs = plt.subplots(2, 2, figsize=(24,8))
+        #     axs = axs.flat
+        #     for idx, i in enumerate(predictions['reconstruction'].cpu().detach().numpy().squeeze(1)):
+        #         axs[idx].imshow(i.transpose())
+        #         axs[idx].axis('off')
+        #     fig.tight_layout()
+        #     writer.add_figure('images/Reconstruction', fig , ep)                     
 
         # show adversarial samples    
         if predictions['r_adv'] is not None: 
@@ -294,52 +296,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 axs[idx].imshow(x_adv, vmax=1, vmin=0, cmap='jet', origin='lower')
                 axs[idx].axis('off')
             fig.tight_layout()
-            writer.add_figure('images/Spec_adv', fig , ep)            
-
-        # show attention    
-        if 'attention' in predictions.keys():
-            fig = plt.figure(figsize=(90, 45))
-            # Creating the grid for 2 attention head for the transformer
-            outer = gridspec.GridSpec(2, 4, wspace=0.2, hspace=0.2)
-            fig.suptitle("Visualizing Attention Heads", size=20)
-            attentions = predictions['attention']
-            tech_note_pred = predictions['tech_note'].detach().cpu().unsqueeze(1).numpy()
-            for i in range(n_heads):
-                # Creating the grid for 4 samples
-                inner = gridspec.GridSpecFromSubplotSpec(2, 2,
-                                subplot_spec=outer[i], wspace=0.1, hspace=0.1)
-                ax = plt.Subplot(fig, outer[i])
-                ax.set_title(f'Head {i}', size=20) # This does not show up
-                for idx in range(predictions['attention'].shape[0]):
-                    axCenter = plt.Subplot(fig, inner[idx])
-                    fig.add_subplot(axCenter)
-                    attention = attentions[idx, :, i]
-                    attention = flatten_attention(attention, w_size)
-                    axCenter.imshow(attention.cpu().detach(), cmap='jet')
-
-
-                    attended_features = mel[idx]
-
-                    # Create another plot on top and left of the attention map                    
-                    divider = make_axes_locatable(axCenter)
-                    axvert = divider.append_axes('left', size='30%', pad=0.5)
-                    axhoriz = divider.append_axes('top', size='20%', pad=0.25)
-                    axhoriz.imshow(attended_features.t().cpu().detach(), aspect='auto', origin='lower', cmap='jet')
-                    axvert.imshow(tech_note_pred[idx], aspect='auto')
-
-                    # changing axis for the center fig
-                    axCenter.set_xticks([])
-
-                    # changing axis for the output fig (left fig)
-                    axvert.set_yticks([])
-                    axvert.xaxis.tick_top()
-                    axvert.set_title('Transcription')
-
-                    axhoriz.set_title(f'Attended Feature (Spec)')
-
-                    axhoriz.margins(x=0)
-                    axvert.margins(y=0)
-        writer.add_figure('images/Attention', fig , ep) 
+            writer.add_figure('images/Spec_adv', fig , ep)
 
 def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
     model.train()
@@ -407,7 +364,6 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 
     tech_weights = compute_dataset_weight(device)
     # tech_weights = None
-    # not consider the weight of note here
 
     print("supervised_set: ", len(supervised_set))
     print("unsupervised_set: ", len(unsupervised_set))

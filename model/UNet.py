@@ -208,18 +208,18 @@ class Spec2Roll(nn.Module):
         # self.linear_feature = nn.Linear(N_BINS, 10)
         # self.feat_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=10, dropout=0)
         
-    def forward(self, x):
+    def forward(self, x, training):
         # state U-net
         enc,s,c = self.Unet1_encoder(x)
-        state_post = self.Unet1_decoder(enc,s,c)
+        state_group_post = self.Unet1_decoder(enc,s,c)
         # note tech U-net
         enc,s,c = self.Unet2_encoder(x)
         tech_note_post = self.Unet2_decoder(enc,s,c)
 
-        state = self.linear_state(state_post)
+        state = self.linear_state(state_group_post)
         state = torch.sigmoid(state)
 
-        group = self.linear_group(state_post)
+        group = self.linear_group(state_group_post)
         group = torch.sigmoid(group)
 
         note = self.linear_note(tech_note_post)
@@ -268,7 +268,8 @@ class Spec2Roll(nn.Module):
         # for idx in tech_detach_idx:
         #     x[idx[0]][idx[1]][50:] = x[idx[0]][idx[1]][50:].detach()
         tech_note = torch.sigmoid(x)
-        return state_group.squeeze(1), tech_note, a
+
+        return state_group.squeeze(1), tech_note
 
 class Roll2Spec(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
@@ -436,193 +437,135 @@ class UNet(nn.Module):
             return state, tech_note, a
 
     def run_on_batch(self, batch, batch_ul=None, VAT=False):
-      device = self.device
-      audio = batch['audio']
+        device = self.device
+        audio = batch['audio']
 
-      gt_bin = batch['label'].shape[-2] # ground truth bin size
-      if batch['label'].dim() == 2:
-          label = batch['label'].unsqueeze(0)
-      else:
-          label = batch['label'] # tech + note
-      state_label = label[:, :, :7]
-      note_tech_label = label[:, :, 7:]
-      # technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
-      # use the weight for the unbalanced tech label
-      # tech_criterion = nn.CrossEntropyLoss(weight=tech_weights, reduction='mean')
-      # tech_criterion = nn.BCEWithLogitsLoss(weight=self.weights, reduction='mean')
-      #####################for unlabelled audio###########################
-      # do VAT for unlabelled audio
-      if batch_ul:
-          audio_ul = batch_ul['audio']
-          if audio_ul.dim() == 2 and audio_ul.shape[-1] != 2:
+        gt_bin = batch['label'].shape[-2] # ground truth bin size
+        if batch['label'].dim() == 2:
+            label = batch['label'].unsqueeze(0)
+        else:
+            label = batch['label'] # tech + note
+        state_label = label[:, :, :7]
+        note_tech_label = label[:, :, 7:]
+        # technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
+        # use the weight for the unbalanced tech label
+        # tech_criterion = nn.CrossEntropyLoss(weight=tech_weights, reduction='mean')
+        # tech_criterion = nn.BCEWithLogitsLoss(weight=self.weights, reduction='mean')
+        #####################for unlabelled audio###########################
+        # do VAT for unlabelled audio
+        if batch_ul:
+            audio_ul = batch_ul['audio']
+            if audio_ul.dim() == 2 and audio_ul.shape[-1] != 2:
             # audio_ul is already mono
             audio_ul.unsqueeze_(-1)
-          audio_ul = audio_ul[:, :, 0]
+            audio_ul = audio_ul[:, :, 0]
 
-          # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
-          spec_1 = self.spectrogram_1(audio_ul) # x = torch.rand(8,229, 640)
-          spec_2 = self.spectrogram_2(audio_ul)
-          spec_3 = self.spectrogram_2(audio_ul)
-          if self.log:
+            # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
+            spec_1 = self.spectrogram_1(audio_ul) # x = torch.rand(8,229, 640)
+            spec_2 = self.spectrogram_2(audio_ul)
+            spec_3 = self.spectrogram_2(audio_ul)
+            if self.log:
             spec_1 = torch.log(spec_1 + 1e-5)
             spec_2 = torch.log(spec_2 + 1e-5)
             spec_3 = torch.log(spec_3 + 1e-5)
-          spec_1 = self.normalize.transform(spec_1)
-          spec_2 = self.normalize.transform(spec_2)
-          spec_3 = self.normalize.transform(spec_3)
+            spec_1 = self.normalize.transform(spec_1)
+            spec_2 = self.normalize.transform(spec_2)
+            spec_3 = self.normalize.transform(spec_3)
 
-          spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # torch.rand(8, 1, 229, 640)
-          spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
-          spec_3 = spec_3.transpose(-1,-2).unsqueeze(1)
-          
-          spec = torch.cat((spec_1, spec_2, spec_3), 1) # torch.rand(8, 2, 229, 640)
-          lds_ul, _, r_norm_ul = self.vat_loss(self, spec)
-      else:
-          # lds_ul = torch.tensor(0.)
-          lds_ul = torch.tensor(0.)
-          r_norm_ul = torch.tensor(0.)
-      #####################for unlabelled audio###########################
+            spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # torch.rand(8, 1, 229, 640)
+            spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
+            spec_3 = spec_3.transpose(-1,-2).unsqueeze(1)
+            
+            spec = torch.cat((spec_1, spec_2, spec_3), 1) # torch.rand(8, 2, 229, 640)
+            lds_ul, _, r_norm_ul = self.vat_loss(self, spec)
+        else:
+            # lds_ul = torch.tensor(0.)
+            lds_ul = torch.tensor(0.)
+            r_norm_ul = torch.tensor(0.)
+        #####################for unlabelled audio###########################
 
-      # Converting audio to spectrograms
-      # spectrogram needs input (num_audio, len_audio):
-      ## convert each batch to a single channel audio
-      if audio.shape[-1] == 2:
+        # Converting audio to spectrograms
+        # spectrogram needs input (num_audio, len_audio):
+        ## convert each batch to a single channel audio
+        if audio.shape[-1] == 2:
         # stereo
         if audio.dim() == 2:
-          # validation audio
-          audio = audio.unsqueeze(0)
+            # validation audio
+            audio = audio.unsqueeze(0)
         if audio.dim() == 3:
-          # batch 
-          audio = audio[:, :, 0]
+            # batch 
+            audio = audio[:, :, 0]
 
-      # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
-      spec_1 = self.spectrogram_1(audio) # x = torch.rand(8, 229, 640)
-      spec_2 = self.spectrogram_2(audio) # x = torch.rand(8, 229, 640)
-      spec_3 = self.spectrogram_2(audio)
-      # log compression
-      if self.log:
-          spec_1 = torch.log(spec_1 + 1e-5)
-          spec_2 = torch.log(spec_2 + 1e-5)
-          spec_3 = torch.log(spec_3 + 1e-5)
-      # Normalizing spectrograms
-      spec_1 = self.normalize.transform(spec_1)
-      spec_2 = self.normalize.transform(spec_2)
-      spec_3 = self.normalize.transform(spec_3)
-      # swap spec bins with timesteps so that it fits attention later 
-      spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
-      spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
-      spec_3 = spec_3.transpose(-1,-2).unsqueeze(1)
-      spec = torch.cat((spec_1, spec_2, spec_3), 1)
+        # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
+        spec_1 = self.spectrogram_1(audio) # x = torch.rand(8, 229, 640)
+        spec_2 = self.spectrogram_2(audio) # x = torch.rand(8, 229, 640)
+        spec_3 = self.spectrogram_2(audio)
+        # log compression
+        if self.log:
+            spec_1 = torch.log(spec_1 + 1e-5)
+            spec_2 = torch.log(spec_2 + 1e-5)
+            spec_3 = torch.log(spec_3 + 1e-5)
+        # Normalizing spectrograms
+        spec_1 = self.normalize.transform(spec_1)
+        spec_2 = self.normalize.transform(spec_2)
+        spec_3 = self.normalize.transform(spec_3)
+        # swap spec bins with timesteps so that it fits attention later 
+        spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+        spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
+        spec_3 = spec_3.transpose(-1,-2).unsqueeze(1)
+        spec = torch.cat((spec_1, spec_2, spec_3), 1)
 
-      # do VAT for labelled audio
-      if VAT:
-          lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
-          r_adv = r_adv.squeeze(1) # remove the channel dimension
-      else:
-          r_adv = None
-          lds_l = torch.tensor(0.)
-          r_norm_l = torch.tensor(0.)
-          
-      if self.reconstruction:
-          reconstrut, technique_pred, technique_pred2, a = self(spec)
-          technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
-          technique_pred2 = technique_pred2[:, :gt_bin, :].reshape(-1, 10)
-          if self.training:
-              predictions = {
-                      'technique': technique_pred,
-                      'technique2': technique_pred2,
-                      'attention': a,
-                      'r_adv': r_adv,
-                      'reconstruction': reconstrut,
-                  }
-              losses = {
-                      'loss/train_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                      'loss/train_technique': tech_criterion(predictions['technique'], technique),
-                      'loss/train_technique2': tech_criterion(predictions['technique2'], technique),
-                      'loss/train_LDS_l': lds_l['technique'],
-                      'loss/train_LDS_ul': lds_ul['technique'],
-                      'loss/train_r_norm_l': r_norm_l.abs().mean(),
-                      'loss/train_r_norm_ul': r_norm_ul.abs().mean()                     
-                      }
-          else:
-              # testing
-              predictions = {
-                      # format of technique output may need to change
-                      'technique': technique_pred.argmax(axis=1).reshape(-1, gt_bin),
-                      'technique2': technique_pred2.argmax(axis=1).reshape(-1, gt_bin),
-                      'attention': a,
-                      'r_adv': r_adv,                
-                      'reconstruction': reconstrut,
-                      }
-              losses = {
-                      'loss/test_reconstruction': F.mse_loss(reconstrut.squeeze(1), spec.squeeze(1).detach()),
-                      'loss/train_technique': tech_criterion(technique_pred, technique),
-                      'loss/train_technique2': tech_criterion(technique_pred2, technique),
-                      'loss/test_LDS_l': lds_l['technique'],
-                      'loss/test_r_norm_l': r_norm_l.abs().mean()             
-                      }
-
-          return predictions, losses, spec.squeeze(1)
-
-      else:
-          state_pred, tech_note_pred, a = self(spec)
-          # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
-          state_pred = state_pred[:, :gt_bin, :]
-          tech_note_pred = tech_note_pred[:, :gt_bin, :]
-          '''
-          TODO: utilize state info to preprocess pred before calculate loss
-          '''
-          if self.training:
-              predictions = {
-                    #   'tech_group': tech_note_pred[:,:,2:7].reshape(-1, 5),
-                    #   'tech_state': tech_note_pred[:,:,7:10].reshape(-1, 3),
-                    #   'tech': tech_note_pred[:,:,10:20].reshape(-1, 10),
-                    #   'note_state': tech_note_pred[:,:,20:23].reshape(-1, 3),
-                    #   'note': tech_note_pred[:,:,23:].reshape(-1, 50),
-                      'tech_note': tech_note_pred.reshape(-1, 59),
-                      'note_state': state_pred[:,:,:3].reshape(-1, 3),
-                      'tech_group': state_pred[:,:,3:].reshape(-1, 4),
-                      'note': tech_note_pred[:,:,:50].reshape(-1, 50),
-                      'tech': tech_note_pred[:,:,50:].reshape(-1, 9),
-                      'r_adv': r_adv,
-                      'attention': a,
-                      }
-              losses = {
-                    #   'loss/train_tech_note': tech_criterion(tech_note_pred, label),
-                      'loss/train_state': F.binary_cross_entropy(state_pred, state_label, weight=self.weights),
-                      'loss/train_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label),
-                      'loss/train_LDS_l': lds_l,
-                      'loss/train_LDS_ul': lds_ul,
-                      'loss/train_r_norm_l': r_norm_l.abs().mean(),
-                      'loss/train_r_norm_ul': r_norm_ul.abs().mean()                 
-                      }
-          else:
-              # testing
-              predictions = {
-                    #   'tech_note': tech_note_pred.reshape(-1, 73),
-                    #   'silent': tech_note_pred[:,:,:2].reshape(-1, 2).argmax(axis=1).reshape(-1, gt_bin),
-                    #   'tech_group': tech_note_pred[:,:,2:7].reshape(-1, 5).argmax(axis=1).reshape(-1, gt_bin),
-                    #   'tech_state': tech_note_pred[:,:,7:10].reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
-                    #   'tech': tech_note_pred[:,:,10:20].reshape(-1, 10).argmax(axis=1).reshape(-1, gt_bin),
-                    #   'note_state': tech_note_pred[:,:,20:23].reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
-                    #   'note': tech_note_pred[:,:,23:].reshape(-1, 50).argmax(axis=1).reshape(-1, gt_bin),
-                      'tech_note': tech_note_pred.reshape(-1, 59),
-                      'note_state': state_pred[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
-                      'tech_group': state_pred[:,:,3:].reshape(-1, 4).argmax(axis=1).reshape(-1, gt_bin),
-                      'note': tech_note_pred[:,:,:50].reshape(-1, 50).argmax(axis=1).reshape(-1, gt_bin),
-                      'tech': tech_note_pred[:,:,50:].reshape(-1, 9).argmax(axis=1).reshape(-1, gt_bin),
-                      'r_adv': r_adv,
-                      'attention': a,
-                      }                        
-              losses = {
-                    #   'loss/test_tech_note': tech_criterion(tech_note_pred, label),
-                      'loss/test_state': F.binary_cross_entropy(state_pred, state_label, weight=self.weights),
-                      'loss/test_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label),
-                      'loss/test_LDS_l': lds_l,
-                      'loss/test_r_norm_l': r_norm_l.abs().mean()                  
-                      }                            
-          #losses['loss/train_tech_note'].sum().backward()
-          return predictions, losses, spec.squeeze(1)
+        # do VAT for labelled audio
+        if VAT:
+            lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
+            r_adv = r_adv.squeeze(1) # remove the channel dimension
+        else:
+            r_adv = None
+            lds_l = torch.tensor(0.)
+            r_norm_l = torch.tensor(0.)
+        
+        
+        state_pred, tech_note_pred = self(spec)
+        # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
+        state_pred = state_pred[:, :gt_bin, :]
+        tech_note_pred = tech_note_pred[:, :gt_bin, :]
+        '''
+        TODO: utilize state info to preprocess pred before calculate loss
+        '''
+        if self.training:
+            predictions = {
+                    'tech_note': tech_note_pred.reshape(-1, 59),
+                    'note_state': state_pred[:,:,:3].reshape(-1, 3),
+                    'tech_group': state_pred[:,:,3:].reshape(-1, 4),
+                    'note': tech_note_pred[:,:,:50].reshape(-1, 50),
+                    'tech': tech_note_pred[:,:,50:].reshape(-1, 9),
+                    'r_adv': r_adv,
+                    }
+            losses = {
+                    'loss/train_state': F.binary_cross_entropy(state_pred, state_label, weight=self.weights),
+                    'loss/train_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label),
+                    'loss/train_LDS_l': lds_l,
+                    'loss/train_LDS_ul': lds_ul,
+                    'loss/train_r_norm_l': r_norm_l.abs().mean(),
+                    'loss/train_r_norm_ul': r_norm_ul.abs().mean()                 
+                    }
+        else:
+            # testing
+            predictions = {
+                    'tech_note': tech_note_pred.reshape(-1, 59),
+                    'note_state': state_pred[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
+                    'tech_group': state_pred[:,:,3:].reshape(-1, 4).argmax(axis=1).reshape(-1, gt_bin),
+                    'note': tech_note_pred[:,:,:50].reshape(-1, 50).argmax(axis=1).reshape(-1, gt_bin),
+                    'tech': tech_note_pred[:,:,50:].reshape(-1, 9).argmax(axis=1).reshape(-1, gt_bin),
+                    'r_adv': r_adv,
+                    }                        
+            losses = {
+                    'loss/test_state': F.binary_cross_entropy(state_pred, state_label, weight=self.weights),
+                    'loss/test_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label),
+                    'loss/test_LDS_l': lds_l,
+                    'loss/test_r_norm_l': r_norm_l.abs().mean()                  
+                    }
+        return predictions, losses, spec.squeeze(1)
 
     def load_my_state_dict(self, state_dict):
         """Useful when loading part of the weights. From https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2"""
