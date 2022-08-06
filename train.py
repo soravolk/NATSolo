@@ -44,7 +44,7 @@ def config():
     resume_iteration = None # 'model-1200'
     train_on = 'Solo'
     n_heads=4
-    iteration = 10
+    iteration = 10 # 10
     VAT_start = 0
     alpha = 1
     VAT=False
@@ -59,19 +59,18 @@ def config():
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 8000 # 20000
+    epoches = 8000 #8000 # 20000
     step_size_up = 100
     max_lr = 1e-4
-    learning_rate = 1e-3
+    learning_rate = 5e-4
     learning_rate_decay_steps = 1000
     learning_rate_decay_rate = 0.98
     clip_gradient_norm = 3
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_OneUnetNoteStateAndFrame'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_SeparateStateAndGroup'
     
-    ex.observers.append(FileStorageObserver.create(logdir)) # saving source code
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -405,8 +404,8 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight of tech label for BCE loss
-    tech_weights=None
-    # tech_weights = compute_dataset_weight(device)
+
+    tech_weights = compute_dataset_weight(device)
     # tech_weights = None
     # not consider the weight of note here
 

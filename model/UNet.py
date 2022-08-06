@@ -95,8 +95,11 @@ class Stack(nn.Module):
         
     def forward(self, x):
         x, a = self.attention(x)
+        #print('after attention: ', x)
         x = self.linear(x)
+        #print('after attention and linear: ', x)
         x = self.dropout(x)
+        #print('after attention and linear and dropout: ', x)
         # stack shape: (8, 233, 10)
         return x, a
         
@@ -195,8 +198,10 @@ class Spec2Roll(nn.Module):
         self.lstm1 = MutliHeadAttention1D(N_BINS+7, N_BINS*complexity, 31, position=True, groups=complexity)
         # self.lstm1 = nn.LSTM(N_BINS, N_BINS, batch_first=True, bidirectional=True)    
         # self.linear1 = nn.Linear(N_BINS*complexity, 65) # 3 note state + 50 notes + 10 techniques
-        self.linear_state = nn.Linear(N_BINS, 7)
-        self.linear_notetech = nn.Linear(N_BINS, 59)
+        self.linear_state = nn.Linear(N_BINS, 3)
+        self.linear_group = nn.Linear(N_BINS, 4)
+        self.linear_note = nn.Linear(N_BINS, 50)
+        self.linear_tech = nn.Linear(N_BINS, 9)
         self.dropout_layer = nn.Dropout(0.5)
         self.combine_stack = Stack(input_size=66, hidden_dim=768, attn_size=31, attn_group=6, output_dim=59, dropout=0)
 
@@ -204,44 +209,66 @@ class Spec2Roll(nn.Module):
         # self.feat_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=10, dropout=0)
         
     def forward(self, x):
-        # U-net 1
-        x,s,c = self.Unet1_encoder(x)
-        x = self.Unet1_decoder(x,s,c)
-        # x_enc,s,c = self.Unet2_encoder(x)
-        # tech_note_post = self.Unet2_decoder(x_enc,s,c)
+        # state U-net
+        enc,s,c = self.Unet1_encoder(x)
+        state_post = self.Unet1_decoder(enc,s,c)
+        # note tech U-net
+        enc,s,c = self.Unet2_encoder(x)
+        tech_note_post = self.Unet2_decoder(enc,s,c)
 
-        state = self.linear_state(x)
+        state = self.linear_state(state_post)
         state = torch.sigmoid(state)
 
-        tech_note = self.linear_notetech(x)
-        tech_note = torch.sigmoid(tech_note)
+        group = self.linear_group(state_post)
+        group = torch.sigmoid(group)
+
+        note = self.linear_note(tech_note_post)
+        note = torch.sigmoid(note)
+        
+        tech = self.linear_tech(tech_note_post)
+        tech = torch.sigmoid(tech)
+
         onset = False
-        for i, audio in enumerate(tech_note):
-            for j, frame in enumerate(audio[0]):
-                frame_state = (state[i].squeeze(0))[j][:3].argmax(axis=0)
-                tech_group = (state[i].squeeze(0))[j][3:].argmax(axis=0)
-                tech_pred = frame[50:].argmax(axis=0)
-                if frame_state == 1:
+        note_detach_idx = []
+        # tech_detach_idx = []
+        # for i, (n, t) in enumerate(zip(note, tech)):
+        #     for j, (note_frame, tech_frame) in enumerate(zip(n[0], t[0])):
+        for i, n in enumerate(note):
+            for j, note_frame in enumerate(n[0]):
+                note_state = (state[i].squeeze(0))[j].argmax(axis=0)
+                # tech_group = (group[i].squeeze(0))[j].argmax(axis=0)
+                note_pred = note_frame.argmax(axis=0)
+                # tech_pred = tech_frame.argmax(axis=0)
+                # assert(note_state < 3 and tech_group < 4)
+                if note_state == 1:
                     onset = True
-                elif frame_state == 0:
+                    onset_note = note_pred
+                elif note_state == 0:
                     onset = False
-                
+            
+                if onset == True and note_pred != onset_note:
+                    onset = False
+
                 if onset == False:
-                    frame.detach()
-                elif tech_group == 0:
-                    frame[50:].detach()
-                elif tech_group == 1 and ((tech_pred == 1 or tech_pred == 2 or tech_pred == 3) == False): 
-                    frame[50:].detach()
-                elif tech_group == 2 and ((tech_pred == 5 or tech_pred == 7 or tech_pred == 9) == False): 
-                    frame[50:].detach()
-                elif tech_group == 3 and ((tech_pred == 4 or tech_pred == 6) == False): 
-                    frame[50:].detach()
-
-        x = torch.cat((state, tech_note), -1)
+                    note_detach_idx.append((i, j))
+                # elif tech_group == 1 and (tech_pred not in [1, 2, 3]): 
+                #     tech_detach_idx.append((i, j))
+                # elif tech_group == 2 and (tech_pred not in [5, 7, 9]): 
+                #     tech_detach_idx.append((i, j))
+                # elif tech_group == 3 and (tech_pred not in [4, 6]): 
+                #     tech_detach_idx.append((i, j))
+                # elif tech_group == 0:
+                #     tech_detach_idx.append((i, j))
+        state_group = torch.cat((state, group), -1)
+        x = torch.cat((state_group, note, tech), -1)
         x, a = self.combine_stack(x.squeeze(1))
+        # detach invalid prediction
+        for idx in note_detach_idx:
+            x[idx[0]][idx[1]] = x[idx[0]][idx[1]].detach()
+        # for idx in tech_detach_idx:
+        #     x[idx[0]][idx[1]][50:] = x[idx[0]][idx[1]][50:].detach()
         tech_note = torch.sigmoid(x)
-
-        return state.squeeze(1), tech_note, a
+        return state_group.squeeze(1), tech_note, a
 
 class Roll2Spec(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
@@ -561,9 +588,9 @@ class UNet(nn.Module):
                       'attention': a,
                       }
               losses = {
-                      # 'loss/train_tech_note': tech_criterion(tech_note_pred, label),
-                      'loss/train_state': F.binary_cross_entropy(state_pred, state_label),
-                      'loss/train_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label, weight=self.weights),
+                    #   'loss/train_tech_note': tech_criterion(tech_note_pred, label),
+                      'loss/train_state': F.binary_cross_entropy(state_pred, state_label, weight=self.weights),
+                      'loss/train_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label),
                       'loss/train_LDS_l': lds_l,
                       'loss/train_LDS_ul': lds_ul,
                       'loss/train_r_norm_l': r_norm_l.abs().mean(),
@@ -588,13 +615,13 @@ class UNet(nn.Module):
                       'attention': a,
                       }                        
               losses = {
-                      # 'loss/test_tech_note': tech_criterion(tech_note_pred, label),
-                      'loss/test_state': F.binary_cross_entropy(state_pred, state_label),
-                      'loss/test_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label, weight=self.weights),
+                    #   'loss/test_tech_note': tech_criterion(tech_note_pred, label),
+                      'loss/test_state': F.binary_cross_entropy(state_pred, state_label, weight=self.weights),
+                      'loss/test_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label),
                       'loss/test_LDS_l': lds_l,
                       'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                       }                            
-
+          #losses['loss/train_tech_note'].sum().backward()
           return predictions, losses, spec.squeeze(1)
 
     def load_my_state_dict(self, state_dict):

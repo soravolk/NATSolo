@@ -55,8 +55,10 @@ class AudioDataset(Dataset):
             result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
         else:
             # result['audio'] = data['audio'].to(self.device)
-            # result['tech_group_label'] = data['tech_group_label'].to(self.device).float()
-            result['tech_label'] = data['tech_label'].to(self.device).float()
+            result['tech_group_label'] = data['tech_group_label'].to(self.device).float()
+            result['note_state_label'] = data['note_state_label'].to(self.device).float()
+            #result['note_label'] = data['note_label'].to(self.device).float()
+            # result['tech_label'] = data['tech_label'].to(self.device).float()
 
 
         return result
@@ -175,14 +177,14 @@ class AudioDataset(Dataset):
             note_label[left:right] = note
         
         ##### concat all one-hot label #####
-        note_state_label = F.one_hot(note_state_label.to(torch.int64), num_classes=3)
+        note_state_label_onehot = F.one_hot(note_state_label.to(torch.int64), num_classes=3)
         tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=4)
         # 0 % 51 = 0 means no note (the lowest note is 52)
         note_label_onehot = F.one_hot(note_label.to(torch.int64) - 51, num_classes=50)
         tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=9)
-        label = torch.cat((note_state_label, tech_group_label_onehot, note_label_onehot, tech_label_onehot), 1)
+        label = torch.cat((note_state_label_onehot, tech_group_label_onehot, note_label_onehot, tech_label_onehot), 1)
 
-        data = dict(path=audio_path, audio=audio, tech_group_label=tech_group_label, label=label)
+        data = dict(path=audio_path, audio=audio, note_state_label=note_state_label, tech_group_label=tech_group_label, label=label)
         torch.save(data, saved_data_path)
         return data
 
@@ -245,23 +247,28 @@ def prepare_VAT_dataset(sequence_length, validation_length, refresh, device, aud
 def compute_dataset_weight(device):
     train_set = Solo(folders=['train_label'], sequence_length=None, device=device, refresh=None)
 
-    y = []
-    for data in train_set:
-        y.extend(data['tech_label'].detach().cpu().numpy())
-    tech_weights = compute_class_weight('balanced', np.unique(y), y)
-    tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
-
     # y = []
     # for data in train_set:
-    #     y.extend(data['tech_group_label'].detach().cpu().numpy())
-    # tech_group_weights = compute_class_weight('balanced', np.unique(y), y)
-    # tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
+    #     y.extend(data['tech_label'].detach().cpu().numpy())
+    # tech_weights = compute_class_weight('balanced', np.unique(y), y)
+    # tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
+
+    y_1 = []
+    y_2 = []
+    for data in train_set:
+        y_1.extend(data['tech_group_label'].detach().cpu().numpy())
+        y_2.extend(data['note_state_label'].detach().cpu().numpy())
+    tech_group_weights = compute_class_weight('balanced', np.unique(y_1), y_1)
+    tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
+    note_state_weights = compute_class_weight('balanced', np.unique(y_2), y_2)
+    note_state_weights = torch.tensor(note_state_weights, dtype=torch.float).to(device)
 
     # silent_weights = torch.ones(2, dtype=torch.float).to(device) * 2
     # tech_state_weights = torch.ones(3, dtype=torch.float).to(device)
     # tech_weights = torch.ones(10, dtype=torch.float).to(device) 
     # note_state_weights = torch.ones(3, dtype=torch.float).to(device)
-    note_weights = torch.ones(50, dtype=torch.float).to(device)
-    class_weights = torch.cat((note_weights, tech_weights), 0)
+    # note_weights = torch.ones(50, dtype=torch.float).to(device)
+    # class_weights = torch.cat((note_weights, tech_weights), 0)
+    class_weights = torch.cat((note_state_weights, tech_group_weights), 0)
 
     return class_weights
