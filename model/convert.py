@@ -1,4 +1,5 @@
 from sklearn.metrics import confusion_matrix
+from mido import Message, MidiFile, MidiTrack
 import numpy as np
 import torch
 
@@ -174,6 +175,14 @@ def extract_notes(notes, states=None, groups=None):
     else:
         states = states.to(torch.int8).cpu()
         # a valid note must come with the onset state
+        
+        # onset = False
+        # for (note, state) in zip(notes, states):
+        #     if state == 1:
+        #         onset = True
+        #         onset_note = note
+            
+
         i = 0
         rb = len(notes)
         while i < rb:
@@ -205,32 +214,31 @@ def extract_notes(notes, states=None, groups=None):
 
     return np.array(pitches), np.array(intervals)
 
-def transcribe2midi(data, model, model_type, onset_threshold=0.5, frame_threshold=0.5, save_path=None, reconstruction=True, onset=True, pseudo_onset=False, rule='rule2', VAT=False): 
-    for i in data:
-        pred = model.transcribe(i)
-#         print(f"pred['onset2'] = {pred['onset2'].shape}")
-#         print(f"pred['frame2'] = {pred['frame2'].shape}")            
+def save_midi(path, pitches, intervals):
+    """
+    Save extracted notes as a MIDI file
+    Parameters
+    ----------
+    path: the path to save the MIDI file
+    pitches: np.ndarray of bin_indices
+    intervals: list of (onset_index, offset_index)
+    """
+    file = MidiFile()
+    track = MidiTrack()
+    file.tracks.append(track)
+    ticks_per_second = file.ticks_per_beat * 2.0
 
+    events = []
+    for i in range(len(pitches)):
+        events.append(dict(type='on', pitch=pitches[i], time=intervals[i][0], velocity=velocities[i]))
+        events.append(dict(type='off', pitch=pitches[i], time=intervals[i][1], velocity=velocities[i]))
+    events.sort(key=lambda row: row['time'])
 
-        for key, value in pred.items():
-            if key in ['frame','onset', 'frame2', 'onset2']:
-                value.squeeze_(0).relu_() # remove batch dim and remove make sure no negative values
-            p_est, i_est = extract_notes_wo_velocity(pred['onset'], pred['frame'], onset_threshold, frame_threshold, rule=rule)
+    last_tick = 0
+    for event in events:
+        current_tick = int(event['time'] * ticks_per_second)
+        pitch = int(round(hz_to_midi(event['pitch'])))
+        track.append(Message('note_' + event['type'], note=pitch, time=current_tick - last_tick))
+        last_tick = current_tick
 
-
-        # print(f"p_ref = {p_ref}\n p_est = {p_est}")
-        
-        t_est, f_est = notes_to_frames(p_est, i_est, pred['frame'].shape)
-
-        scaling = HOP_LENGTH / SAMPLE_RATE
-
-        # Converting time steps to seconds and midi number to frequency
-        i_est = (i_est * scaling).reshape(-1, 2)
-        p_est = np.array([midi_to_hz(MIN_MIDI + midi) for midi in p_est])
-
-        t_est = t_est.astype(np.float64) * scaling
-        f_est = [np.array([midi_to_hz(MIN_MIDI + midi) for midi in freqs]) for freqs in f_est]
-
-        midi_path = os.path.join(save_path, model_type+'-'+os.path.basename(i['path'])[:-4] + 'mid')
-        print(f'midi_path = {midi_path}')
-        save_midi(midi_path, p_est, i_est, [127]*len(p_est))
+    file.save(path)

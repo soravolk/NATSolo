@@ -30,6 +30,7 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
     metrics = defaultdict(list) # a safe dict
     transcriptions = defaultdict(list)
 
+    song_count = 0
     for val_data in tqdm(data):
         pred, losses, _, _, _ = model.run_on_batch(val_data, None, False)
         
@@ -72,6 +73,7 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         tech_est, tech_i_est = extract_technique(pred['tech'], pred['note_state'])
         tech_i_ref = (tech_i_ref * scaling).reshape(-1, 2)
         tech_i_est = (tech_i_est * scaling).reshape(-1, 2)
+
         ############ evaluate notes ############
         pred['note'].squeeze_(0)
         pred['tech_group'].squeeze_(0)
@@ -84,6 +86,10 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         note_i_est = (note_i_est * scaling).reshape(-1, 2)
         note_est_hz = np.array([midi_to_hz(MIN_MIDI + midi) for midi in note_est])
         
+        # save midi
+        midi_path = os.path.join('midi', f'song{song_count}_ep{ep}.midi')
+        save_midi(midi_path, note_est_hz, note_i_est)
+
         a = evaluate_frame_accuracy(note_label, pred['note']) # frame level
         p, r, f, o = evaluate_notes(note_i_ref, note_ref_hz, note_i_est, note_est_hz, offset_ratio=None)
         metrics['metric/note/accuracy'].append(a)
@@ -104,7 +110,6 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         # metrics['metric/note-with-offsets/overlap'].append(o)
 
         # may implement frame_metrics later
-
         cm_dict = {
             'cm': cm,
             'Precision': cm_precision,
@@ -126,6 +131,8 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
             save_pianoroll(file_path, val_data['technique'])
             pred_path = os.path.join(save_path, os.path.basename(val_data['path']) + '.pred.png')
             save_pianoroll(pred_path, pred['technique'])
+    
+        song_count += 1
     return metrics, cm_dict, transcriptions
 
 def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):

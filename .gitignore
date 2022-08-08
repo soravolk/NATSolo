@@ -3,6 +3,7 @@ Solo
 runs
 checkpoint
 model/__pycache__
+midi/
 .DS_store
 checkpoint
 model/yolo_exp/yolox/models/yolox_s.pth
