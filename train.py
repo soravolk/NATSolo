@@ -71,6 +71,14 @@ def config():
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
     logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_NotCountNormalAsCM'
     
+def plot_spec_and_post(writer, ep, source, figname):
+    fig, axs = plt.subplots(2, 2, figsize=(24,8))
+    axs = axs.flat
+    for idx, i in enumerate(source.cpu().detach().numpy()):
+        axs[idx].imshow(i.transpose())
+        axs[idx].axis('off')
+    fig.tight_layout()
+    writer.add_figure(figname, fig , ep)
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -120,27 +128,21 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 writer.add_scalar(key, np.mean(values), global_step=ep)
 
     # visualized validation audio
-    predictions, losses, mel = model.run_on_batch(batch_visualize, None, VAT)
+    predictions, losses, mel, state_group_post, tech_note_post = model.run_on_batch(batch_visualize, None, VAT)
     loss = sum(losses.values())
-
-    mel = mel[:,0,:,:]
     
     # Show the original transcription and spectrograms
     if ep==1:
         # spectrogram
-        fig, axs = plt.subplots(2, 2, figsize=(24,8))
-        axs = axs.flat
-        for idx, i in enumerate(mel.cpu().detach().numpy()):
-            axs[idx].imshow(i.transpose())
-            axs[idx].axis('off')
-        fig.tight_layout()
-        writer.add_figure('images/Original', fig , ep)
-
-        # technique ground truth
+        plot_spec_and_post(writer, ep, mel, 'images/Original')
+        # plot state_group_post
+        plot_spec_and_post(writer, ep, state_group_post, 'images/state_group_post')
+        # plot tech_note_post
+        plot_spec_and_post(writer, ep, tech_note_post, 'images/tech_note_post')
+        
+        # when the spectrogram adds adversarial direction
         fig, axs = plt.subplots(2, 2, figsize=(24,4))
         axs = axs.flat
-            
-        # when the spectrogram adds adversarial direction
         if predictions['r_adv'] is not None: 
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
             axs = axs.flat
@@ -149,8 +151,8 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 axs[idx].imshow(x_adv, vmax=1, vmin=0)
                 axs[idx].axis('off')
             fig.tight_layout()
+            writer.add_figure('images/Spec_adv', fig , ep)
 
-            writer.add_figure('images/Spec_adv', fig , ep)           
     if ep%logging_freq == 0:
         ##################################################### 
         # Show the transcription result in validation period
@@ -302,10 +304,10 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
         batch_l = next(l_loader)
         
         if (ep < VAT_start) or (VAT==False):
-            predictions, losses, _ = model.run_on_batch(batch_l, None, False)
+            predictions, losses = model.run_on_batch(batch_l, None, False)
         else:
             batch_ul = next(ul_loader)
-            predictions, losses, _ = model.run_on_batch(batch_l, batch_ul, VAT)
+            predictions, losses = model.run_on_batch(batch_l, batch_ul, VAT)
 
         loss = 0
         # tweak the loss
@@ -405,9 +407,9 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
                             True, VAT_start, reconstruction, tech_weights)            
 
         # Saving model
-        if (ep)%saving_freq == 0:
-            torch.save(model.state_dict(), os.path.join('checkpoint', f'model-{ep}.pt'))
-            torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
+        # if (ep)%saving_freq == 0:
+        #     torch.save(model.state_dict(), os.path.join('checkpoint', f'model-{ep}.pt'))
+        #     torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
         
         for key, value in {**losses}.items():
             writer.add_scalar(key, value.item(), global_step=ep) 

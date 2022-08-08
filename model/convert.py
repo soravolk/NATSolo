@@ -204,3 +204,33 @@ def extract_notes(notes, states=None, groups=None):
 
 
     return np.array(pitches), np.array(intervals)
+
+def transcribe2midi(data, model, model_type, onset_threshold=0.5, frame_threshold=0.5, save_path=None, reconstruction=True, onset=True, pseudo_onset=False, rule='rule2', VAT=False): 
+    for i in data:
+        pred = model.transcribe(i)
+#         print(f"pred['onset2'] = {pred['onset2'].shape}")
+#         print(f"pred['frame2'] = {pred['frame2'].shape}")            
+
+
+        for key, value in pred.items():
+            if key in ['frame','onset', 'frame2', 'onset2']:
+                value.squeeze_(0).relu_() # remove batch dim and remove make sure no negative values
+            p_est, i_est = extract_notes_wo_velocity(pred['onset'], pred['frame'], onset_threshold, frame_threshold, rule=rule)
+
+
+        # print(f"p_ref = {p_ref}\n p_est = {p_est}")
+        
+        t_est, f_est = notes_to_frames(p_est, i_est, pred['frame'].shape)
+
+        scaling = HOP_LENGTH / SAMPLE_RATE
+
+        # Converting time steps to seconds and midi number to frequency
+        i_est = (i_est * scaling).reshape(-1, 2)
+        p_est = np.array([midi_to_hz(MIN_MIDI + midi) for midi in p_est])
+
+        t_est = t_est.astype(np.float64) * scaling
+        f_est = [np.array([midi_to_hz(MIN_MIDI + midi) for midi in freqs]) for freqs in f_est]
+
+        midi_path = os.path.join(save_path, model_type+'-'+os.path.basename(i['path'])[:-4] + 'mid')
+        print(f'midi_path = {midi_path}')
+        save_midi(midi_path, p_est, i_est, [127]*len(p_est))

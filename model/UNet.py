@@ -196,17 +196,12 @@ class Spec2Roll(nn.Module):
         self.Unet2_decoder = Decoder(ds_ksize, ds_stride, 1)
         # dont know why use N_BINS+7
         self.lstm1 = MutliHeadAttention1D(N_BINS+7, N_BINS*complexity, 31, position=True, groups=complexity)
-        # self.lstm1 = nn.LSTM(N_BINS, N_BINS, batch_first=True, bidirectional=True)    
-        # self.linear1 = nn.Linear(N_BINS*complexity, 65) # 3 note state + 50 notes + 10 techniques
         self.linear_state = nn.Linear(N_BINS, 3)
         self.linear_group = nn.Linear(N_BINS, 4)
         self.linear_note = nn.Linear(N_BINS, 50)
         self.linear_tech = nn.Linear(N_BINS, 9)
         self.dropout_layer = nn.Dropout(0.5)
         self.combine_stack = Stack(input_size=66, hidden_dim=768, attn_size=31, attn_group=6, output_dim=59, dropout=0)
-
-        # self.linear_feature = nn.Linear(N_BINS, 10)
-        # self.feat_stack = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=4, output_dim=10, dropout=0)
         
     def forward(self, x, training):
         # state U-net
@@ -269,7 +264,10 @@ class Spec2Roll(nn.Module):
         #     x[idx[0]][idx[1]][50:] = x[idx[0]][idx[1]][50:].detach()
         tech_note = torch.sigmoid(x)
 
-        return state_group.squeeze(1), tech_note
+        if training:
+            return state_group.squeeze(1), tech_note, None, None
+        else:
+            return state_group.squeeze(1), tech_note, state_group_post, tech_note_post
 
 ### VAT for unlabelled data ###
 ''' loss for VAT '''
@@ -396,17 +394,8 @@ class UNet(nn.Module):
 
     def forward(self, x):
         # U-net 1
-        state, tech_note = self.transcriber(x, self.training)
-
-        if self.reconstruction:     
-            # U-net 2
-            print("reconstruction")
-            reconstruction, a_reconstruct = self.reconstructor(technique)
-            # Applying U-net 1 to the reconstructed spectrograms
-            technique2, a_2 = self.transcriber(reconstruction)
-            return reconstruction, technique, technique2
-        else:
-            return state, tech_note
+        state, tech_note, state_group_post, tech_note_post = self.transcriber(x, self.training)
+        return state, tech_note, state_group_post, tech_note_post
 
     def run_on_batch(self, batch, batch_ul=None, VAT=False):
         device = self.device
@@ -497,13 +486,11 @@ class UNet(nn.Module):
             r_norm_l = torch.tensor(0.)
         
         
-        state_pred, tech_note_pred = self(spec)
+        state_pred, tech_note_pred, state_group_post, tech_note_post = self(spec)
         # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
         state_pred = state_pred[:, :gt_bin, :]
         tech_note_pred = tech_note_pred[:, :gt_bin, :]
-        '''
-        TODO: utilize state info to preprocess pred before calculate loss
-        '''
+
         if self.training:
             predictions = {
                     'tech_note': tech_note_pred.reshape(-1, 59),
@@ -521,6 +508,7 @@ class UNet(nn.Module):
                     'loss/train_r_norm_l': r_norm_l.abs().mean(),
                     'loss/train_r_norm_ul': r_norm_ul.abs().mean()                 
                     }
+            return predictions, losses
         else:
             # testing
             predictions = {
@@ -537,7 +525,7 @@ class UNet(nn.Module):
                     'loss/test_LDS_l': lds_l,
                     'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                     }
-        return predictions, losses, spec.squeeze(1)
+            return predictions, losses, spec[:,1,:,:].squeeze(1), state_group_post.squeeze(1), tech_note_post.squeeze(1)
 
     def load_my_state_dict(self, state_dict):
         """Useful when loading part of the weights. From https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2"""
