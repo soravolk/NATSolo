@@ -3,7 +3,8 @@ import numpy as np
 import torch
 
 def get_confusion_matrix(correct_labels, predict_labels):
-    labels = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    # ignore 'no tech'
+    labels = [1, 2, 3, 4, 5, 6, 7, 8]
 
     cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
 
@@ -12,7 +13,7 @@ def get_confusion_matrix(correct_labels, predict_labels):
     for i, row in enumerate(cm):
         total = row.sum()
         for j in range(cm.shape[0]):
-            cm_recall.append(row[j]/total if (row[j] != 0 or total != 0) else 0)
+            cm_recall.append(row[j] / total if (row[j] != 0 or total != 0) else 0)
     cm_recall = np.reshape(cm_recall, cm.shape)
 
     # precision

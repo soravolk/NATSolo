@@ -64,12 +64,12 @@ def config():
     max_lr = 1e-4
     learning_rate = 5e-4
     learning_rate_decay_steps = 1000
-    learning_rate_decay_rate = 0.8 #0.98
+    learning_rate_decay_rate = 0.9 #0.98
     clip_gradient_norm = 3
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_SeparateStateAndGroup'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_NotCountNormalAsCM'
     
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
@@ -131,7 +131,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         fig, axs = plt.subplots(2, 2, figsize=(24,8))
         axs = axs.flat
         for idx, i in enumerate(mel.cpu().detach().numpy()):
-            axs[idx].imshow(i.transpose()) # , cmap='jet', origin='lower'
+            axs[idx].imshow(i.transpose())
             axs[idx].axis('off')
         fig.tight_layout()
         writer.add_figure('images/Original', fig , ep)
@@ -151,9 +151,10 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             fig.tight_layout()
 
             writer.add_figure('images/Spec_adv', fig , ep)           
-    ##################################################### 
-    # Show the transcription result in validation period
     if ep%logging_freq == 0:
+        ##################################################### 
+        # Show the transcription result in validation period
+        print('Show the transcription result')
         fig = plt.figure(constrained_layout=True, figsize=(48,20))
         subfigs = fig.subfigures(2, 2)
         subfigs = subfigs.flat
@@ -269,24 +270,15 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
         writer.add_figure('transcription/prediction_B', fig, ep)
         #####################################################
-
+        print('Plot confusion matrix')
         # Plot confusion matrix
         for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
             if output_key in cm_dict.keys():
                 if output_key in ['cm', 'cm_2']:
                     plot_confusion_matrix(cm_dict[output_key], technique_dict, writer, ep, output_key, f'images/{output_key}', 'd', 10)
                 else:
-                    plot_confusion_matrix(cm_dict[output_key], technique_dict, writer, ep, output_key, f'images/{output_key}', '.2f', 6)
-
-        # if 'reconstruction' in predictions.keys():
-        #     fig, axs = plt.subplots(2, 2, figsize=(24,8))
-        #     axs = axs.flat
-        #     for idx, i in enumerate(predictions['reconstruction'].cpu().detach().numpy().squeeze(1)):
-        #         axs[idx].imshow(i.transpose())
-        #         axs[idx].axis('off')
-        #     fig.tight_layout()
-        #     writer.add_figure('images/Reconstruction', fig , ep)                     
-
+                    plot_confusion_matrix(cm_dict[output_key], technique_dict, writer, ep, output_key, f'images/{output_key}', '.2f', 6)               
+        print('adversarial samples')
         # show adversarial samples    
         if predictions['r_adv'] is not None: 
             fig, axs = plt.subplots(2, 2, figsize=(24,8))

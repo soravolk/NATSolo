@@ -72,7 +72,7 @@ def plot_confusion_matrix(cm, technique_dict, writer, ep, title='Prediction', te
         - Depending on the number of category and the data , you may have to modify the figzie, font sizes etc. 
         - Currently, some of the ticks dont line up due to rotations.
     '''
-    labels = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    labels = [1, 2, 3, 4, 5, 6, 7, 8]
     np.set_printoptions(precision=2)
     fig, ax = plt.subplots(figsize=(5, 5), dpi=180, facecolor='w', edgecolor='k')
 

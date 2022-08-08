@@ -271,31 +271,6 @@ class Spec2Roll(nn.Module):
 
         return state_group.squeeze(1), tech_note
 
-class Roll2Spec(nn.Module):
-    def __init__(self, ds_ksize, ds_stride, complexity=4):
-        super().__init__() 
-        self.Unet2_encoder = Encoder(ds_ksize, ds_stride)
-        # WARNING: change the output from 1 to 2 to test hop 256 and 512
-        self.Unet2_decoder = Decoder(ds_ksize, ds_stride, 2)   
-        self.lstm2 = MutliHeadAttention1D(59, N_BINS*complexity, 31, position=True, groups=4)            
-        self.linear2 = nn.Linear(N_BINS*complexity, N_BINS)         
-        
-    def forward(self, x):
-#         U-net 2
-        x, a = self.lstm2(x)
-        # x = self.linear2(x)
-        x = torch.sigmoid(self.linear2(x)) # ToDo, remove the sigmoid activation and see if we get a better result
-        x,s,c = self.Unet2_encoder(x.unsqueeze(1))
-        reconstruction = self.Unet2_decoder(x,s,c) # predict roll
-
-#         x,sq
-#         x = self.Unet2_decoder(x,s,c) # predict roll
-#         x, a = self.lstm2(x.squeeze(1))
-#         reconstruction = self.linear2(x) # ToDo, remove the sigmoid activation and see if we get a better result        
-#         reconstruction = reconstruction.clamp(0,1).unsqueeze(1)
-        
-        return reconstruction, a
-
 ### VAT for unlabelled data ###
 ''' loss for VAT '''
 def _l2_normalize(d, binwise):
@@ -418,13 +393,10 @@ class UNet(nn.Module):
         self.device = device   
         self.transcriber = Spec2Roll(ds_ksize, ds_stride)
         self.weights = weights
-        if reconstruction==True:
-            self.reconstructor = Roll2Spec(ds_ksize, ds_stride)
-               
-    def forward(self, x):
 
+    def forward(self, x):
         # U-net 1
-        state, tech_note, a = self.transcriber(x)
+        state, tech_note = self.transcriber(x, self.training)
 
         if self.reconstruction:     
             # U-net 2
@@ -432,9 +404,9 @@ class UNet(nn.Module):
             reconstruction, a_reconstruct = self.reconstructor(technique)
             # Applying U-net 1 to the reconstructed spectrograms
             technique2, a_2 = self.transcriber(reconstruction)
-            return reconstruction, technique, technique2, a
+            return reconstruction, technique, technique2
         else:
-            return state, tech_note, a
+            return state, tech_note
 
     def run_on_batch(self, batch, batch_ul=None, VAT=False):
         device = self.device
@@ -456,21 +428,21 @@ class UNet(nn.Module):
         if batch_ul:
             audio_ul = batch_ul['audio']
             if audio_ul.dim() == 2 and audio_ul.shape[-1] != 2:
-            # audio_ul is already mono
-            audio_ul.unsqueeze_(-1)
-            audio_ul = audio_ul[:, :, 0]
+                # audio_ul is already mono
+                audio_ul.unsqueeze_(-1)
+                audio_ul = audio_ul[:, :, 0]
 
             # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
             spec_1 = self.spectrogram_1(audio_ul) # x = torch.rand(8,229, 640)
             spec_2 = self.spectrogram_2(audio_ul)
-            spec_3 = self.spectrogram_2(audio_ul)
+            spec_3 = self.spectrogram_3(audio_ul)
             if self.log:
-            spec_1 = torch.log(spec_1 + 1e-5)
-            spec_2 = torch.log(spec_2 + 1e-5)
-            spec_3 = torch.log(spec_3 + 1e-5)
-            spec_1 = self.normalize.transform(spec_1)
-            spec_2 = self.normalize.transform(spec_2)
-            spec_3 = self.normalize.transform(spec_3)
+                spec_1 = torch.log(spec_1 + 1e-5)
+                spec_2 = torch.log(spec_2 + 1e-5)
+                spec_3 = torch.log(spec_3 + 1e-5)
+                spec_1 = self.normalize.transform(spec_1)
+                spec_2 = self.normalize.transform(spec_2)
+                spec_3 = self.normalize.transform(spec_3)
 
             spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # torch.rand(8, 1, 229, 640)
             spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
@@ -488,18 +460,18 @@ class UNet(nn.Module):
         # spectrogram needs input (num_audio, len_audio):
         ## convert each batch to a single channel audio
         if audio.shape[-1] == 2:
-        # stereo
-        if audio.dim() == 2:
-            # validation audio
-            audio = audio.unsqueeze(0)
-        if audio.dim() == 3:
-            # batch 
-            audio = audio[:, :, 0]
+            # stereo
+            if audio.dim() == 2:
+                # validation audio
+                audio = audio.unsqueeze(0)
+            if audio.dim() == 3:
+                # batch 
+                audio = audio[:, :, 0]
 
         # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
         spec_1 = self.spectrogram_1(audio) # x = torch.rand(8, 229, 640)
         spec_2 = self.spectrogram_2(audio) # x = torch.rand(8, 229, 640)
-        spec_3 = self.spectrogram_2(audio)
+        spec_3 = self.spectrogram_3(audio)
         # log compression
         if self.log:
             spec_1 = torch.log(spec_1 + 1e-5)

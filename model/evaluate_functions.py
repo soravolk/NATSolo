@@ -54,8 +54,8 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         cm, cm_recall, cm_precision = get_confusion_matrix(correct_tech_labels, predict_tech_labels)
         # get the recall and precision of techniques
         for key, value in technique_dict.items():
-            p = cm_precision[key][key]
-            r = cm_recall[key][key]
+            p = cm_precision[key - 1][key - 1]
+            r = cm_recall[key - 1][key - 1]
             f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
             metrics[f'metric/{value}/precision'].append(p)
             metrics[f'metric/{value}/recall'].append(r)
