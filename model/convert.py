@@ -1,5 +1,6 @@
 from sklearn.metrics import confusion_matrix
 from mido import Message, MidiFile, MidiTrack
+from mir_eval.util import hz_to_midi
 import numpy as np
 import torch
 
@@ -49,7 +50,7 @@ def evaluate_frame_accuracy_per_tech(tech, correct_labels, predict_labels):
     
     return accuracy
 
-def extract_technique(tech, states=None):
+def extract_technique(techs, states=None):
     """
     Finds the note timings based on the onsets and tech information
     Parameters
@@ -65,31 +66,31 @@ def extract_technique(tech, states=None):
     # onset_diff = torch.cat([onsets[:1, :], onsets[1:, :] - onsets[:-1, :]], dim=0) == 1 # Make sure the activation is only 1 time-step
     
     # convert from label 0 - 9 to 1 - 10 for mir_eval by adding 1
-    tech = tech.to(torch.int8).cpu() # float
+    techs = techs.to(torch.int8).cpu() # float
 
     techniques = []
     intervals = []
 
     # get the interval of every technique
     i = 0
-    rb = len(tech)
+    rb = len(techs)
     if states is None:
         while i < rb:
-            technique = tech[i]
-
-            if technique == 0:
+            tech = techs[i]
+            if tech == 0:
                 i += 1
                 continue
-
             onset = i
             offset = i
-            while offset < rb and tech[offset] == technique:
+            while offset < rb and techs[offset] == tech:
                 offset += 1
-            # After knowing where does the note start and end, we can return the technique information
-            techniques.append(technique)
+            # After knowing where does the note start and end, we can return the tech information
+            techniques.append(tech)
             intervals.append([onset, offset - 0.1]) # offset - 1
             i = offset
     else:
+        states = states.to(torch.int8).cpu()
+        # a valid note must come with the onset state
         while i < rb:
             if tech[i] != 0 and states[i] == 1: # tech onset at frame i:
                 onset = i
@@ -175,42 +176,21 @@ def extract_notes(notes, states=None, groups=None):
     else:
         states = states.to(torch.int8).cpu()
         # a valid note must come with the onset state
-        
-        # onset = False
-        # for (note, state) in zip(notes, states):
-        #     if state == 1:
-        #         onset = True
-        #         onset_note = note
-            
+        onset = False
+        for i, (note, state) in enumerate(zip(notes, states)):
+            # assume one onset does not follow another onset
+            if onset == False and state == 1:
+                onset = True
+                start = i
+                onset_note = note
 
-        i = 0
-        rb = len(notes)
-        while i < rb:
-            # onset
-            if notes[i] != 0 and states[i] == 1:
-                # find an onset if there are consecutive onsets
-                # the next frame after an onset frame must be the activate state
-                onset = i
-                cur_note = notes[onset]
-                while i + 1 < rb and states[i + 1] == 1 and notes[i + 1] == cur_note:
-                    i += 1
-                i += 1
-                if i >= rb:
-                    break
-                if cur_note == 0:
+            if onset:
+                if state != 0:
                     continue
-                if states[i] == 0 and groups[i] != 2:
-                    continue
-                
-                offset = i
-                while offset < rb and states[offset] == 2 and notes[offset] == cur_note:
-                    offset += 1                 
-                pitches.append(cur_note)
-                intervals.append([onset, offset - 0.1])
-                i = offset
-            else:
-                i += 1
-
+                else:
+                    onset = False
+                    pitches.append(onset_note)
+                    intervals.append([start, i - 0.1])
 
     return np.array(pitches), np.array(intervals)
 
@@ -230,8 +210,8 @@ def save_midi(path, pitches, intervals):
 
     events = []
     for i in range(len(pitches)):
-        events.append(dict(type='on', pitch=pitches[i], time=intervals[i][0], velocity=velocities[i]))
-        events.append(dict(type='off', pitch=pitches[i], time=intervals[i][1], velocity=velocities[i]))
+        events.append(dict(type='on', pitch=pitches[i], time=intervals[i][0]))
+        events.append(dict(type='off', pitch=pitches[i], time=intervals[i][1]))
     events.sort(key=lambda row: row['time'])
 
     last_tick = 0

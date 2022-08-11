@@ -223,29 +223,27 @@ class Spec2Roll(nn.Module):
         tech = self.linear_tech(tech_note_post)
         tech = torch.sigmoid(tech)
 
-        onset = False
         note_detach_idx = []
         # tech_detach_idx = []
         # for i, (n, t) in enumerate(zip(note, tech)):
         #     for j, (note_frame, tech_frame) in enumerate(zip(n[0], t[0])):
-        for i, n in enumerate(note):
-            for j, note_frame in enumerate(n[0]):
-                note_state = (state[i].squeeze(0))[j].argmax(axis=0)
+        for i, (n, s) in enumerate(zip(note, state)):
+            onset = False
+            for j, (note_frame, state_frame) in enumerate(zip(n[0], s[0])):
+                note_state = state_frame.argmax(axis=0)
                 # tech_group = (group[i].squeeze(0))[j].argmax(axis=0)
-                note_pred = note_frame.argmax(axis=0)
+                # note_pred = note_frame.argmax(axis=0)
                 # tech_pred = tech_frame.argmax(axis=0)
                 # assert(note_state < 3 and tech_group < 4)
-                if note_state == 1:
+                if onset == False and note_state == 1:
                     onset = True
-                    onset_note = note_pred
-                elif note_state == 0:
-                    onset = False
-            
-                if onset == True and note_pred != onset_note:
-                    onset = False
 
-                if onset == False:
-                    note_detach_idx.append((i, j))
+                if onset:
+                    if note_state != 0:
+                        continue
+                    else:
+                        onset = False
+                note_detach_idx.append((i, j))
                 # elif tech_group == 1 and (tech_pred not in [1, 2, 3]): 
                 #     tech_detach_idx.append((i, j))
                 # elif tech_group == 2 and (tech_pred not in [5, 7, 9]): 
@@ -402,6 +400,8 @@ class UNet(nn.Module):
         audio = batch['audio']
 
         gt_bin = batch['label'].shape[-2] # ground truth bin size
+        print('====================================')
+        print(gt_bin)
         if batch['label'].dim() == 2:
             label = batch['label'].unsqueeze(0)
         else:
@@ -488,6 +488,8 @@ class UNet(nn.Module):
         
         state_pred, tech_note_pred, state_group_post, tech_note_post = self(spec)
         # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
+        print('================================================')
+        print(state_pred.shape[-2])
         state_pred = state_pred[:, :gt_bin, :]
         tech_note_pred = tech_note_pred[:, :gt_bin, :]
 

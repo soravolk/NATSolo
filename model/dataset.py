@@ -172,7 +172,8 @@ class AudioDataset(Dataset):
             note_state_label[left: left + 3] = 1
             # note_state_label[left - 2: left + 3] = 1 # onset
             # note_state_label[left + 3: right] = 2 # activate
-            note_state_label[left + 3: right] = 2
+            note_state_label[left + 3: right - 1] = 2
+            note_state_label[right - 1] = 0
 
             note_label[left:right] = note
         

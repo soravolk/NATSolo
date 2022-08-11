@@ -69,7 +69,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_NotCountNormalAsCM'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_midiSpecPostTranscription'
     
 def plot_spec_and_post(writer, ep, source, figname):
     fig, axs = plt.subplots(2, 2, figsize=(24,8))
@@ -139,21 +139,25 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         plot_spec_and_post(writer, ep, state_group_post, 'images/state_group_post')
         # plot tech_note_post
         plot_spec_and_post(writer, ep, tech_note_post, 'images/tech_note_post')
-        
+
         # when the spectrogram adds adversarial direction
-        fig, axs = plt.subplots(2, 2, figsize=(24,4))
-        axs = axs.flat
-        if predictions['r_adv'] is not None: 
-            fig, axs = plt.subplots(2, 2, figsize=(24,8))
-            axs = axs.flat
-            for idx, i in enumerate(mel.cpu().detach().numpy()):
-                x_adv = i.transpose()+predictions['r_adv'][idx][0].t().cpu().numpy()
-                axs[idx].imshow(x_adv, vmax=1, vmin=0)
-                axs[idx].axis('off')
-            fig.tight_layout()
-            writer.add_figure('images/Spec_adv', fig , ep)
+        # fig, axs = plt.subplots(2, 2, figsize=(24,4))
+        # axs = axs.flat
+        # if predictions['r_adv'] is not None: 
+        #     fig, axs = plt.subplots(2, 2, figsize=(24,8))
+        #     axs = axs.flat
+        #     for idx, i in enumerate(mel.cpu().detach().numpy()):
+        #         x_adv = i.transpose()+predictions['r_adv'][idx][0].t().cpu().numpy()
+        #         axs[idx].imshow(x_adv, vmax=1, vmin=0)
+        #         axs[idx].axis('off')
+        #     fig.tight_layout()
+        #     writer.add_figure('images/Spec_adv', fig , ep)
 
     if ep%logging_freq == 0:
+        # plot state_group_post
+        plot_spec_and_post(writer, ep, state_group_post, 'images/state_group_post')
+        # plot tech_note_post
+        plot_spec_and_post(writer, ep, tech_note_post, 'images/tech_note_post')
         ##################################################### 
         # Show the transcription result in validation period
         print('Show the transcription result')
