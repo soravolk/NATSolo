@@ -69,7 +69,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_midiSpecPostTranscription'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_newMidiOffset'
     
 def plot_spec_and_post(writer, ep, source, figname):
     fig, axs = plt.subplots(2, 2, figsize=(24,8))
@@ -360,8 +360,8 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     
     # get weight of tech label for BCE loss
 
-    tech_weights = compute_dataset_weight(device)
-    # tech_weights = None
+    # tech_weights = compute_dataset_weight(device)
+    tech_weights = None
 
     print("supervised_set: ", len(supervised_set))
     print("unsupervised_set: ", len(unsupervised_set))

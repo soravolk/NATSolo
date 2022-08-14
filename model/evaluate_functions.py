@@ -88,10 +88,10 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         
         # save midi
         midi_path = os.path.join('midi', f'song{song_count}_ep{ep}.midi')
-        save_midi(midi_path, note_est_hz, note_i_est)
+        save_midi(midi_path, note_est, note_i_est)
         # save ground truth midi
         gt_midi_path = os.path.join('midi', f'gt_song{song_count}.midi')
-        save_midi(gt_midi_path, note_ref_hz, note_i_ref)
+        save_midi(gt_midi_path, note_ref, note_i_ref)
 
         a = evaluate_frame_accuracy(note_label, pred['note']) # frame level
         p, r, f, o = evaluate_notes(note_i_ref, note_ref_hz, note_i_est, note_est_hz, offset_ratio=None)
@@ -121,11 +121,11 @@ def evaluate_prediction(data, model, ep, logging_freq, save_path=None, reconstru
         if ep%logging_freq == 0:
             transcriptions['tech_gt'].append(tech_ref)
             transcriptions['tech_interval_gt'].append(tech_i_ref)
-            transcriptions['note_gt'].append(note_ref + 51)
+            transcriptions['note_gt'].append(note_ref + LOGIC_MIDI)
             transcriptions['note_interval_gt'].append(note_i_ref)
             transcriptions['tech'].append(tech_est)
             transcriptions['tech_interval'].append(tech_i_est)
-            transcriptions['note'].append(note_est + 51)
+            transcriptions['note'].append(note_est + LOGIC_MIDI)
             transcriptions['note_interval'].append(note_i_est)
 
         if save_path is not None:

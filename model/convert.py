@@ -3,6 +3,7 @@ from mido import Message, MidiFile, MidiTrack
 from mir_eval.util import hz_to_midi
 import numpy as np
 import torch
+from .constants import *
 
 def get_confusion_matrix(correct_labels, predict_labels):
     # ignore 'no tech'
@@ -207,7 +208,7 @@ def save_midi(path, pitches, intervals):
     track = MidiTrack()
     file.tracks.append(track)
     ticks_per_second = file.ticks_per_beat * 2.0
-
+    #pitches = np.array([midi_to_hz(LOGIC_MIDI + midi) for midi in midi_notes])
     events = []
     for i in range(len(pitches)):
         events.append(dict(type='on', pitch=pitches[i], time=intervals[i][0]))
@@ -217,8 +218,8 @@ def save_midi(path, pitches, intervals):
     last_tick = 0
     for event in events:
         current_tick = int(event['time'] * ticks_per_second)
-        pitch = int(round(hz_to_midi(event['pitch'])))
-        track.append(Message('note_' + event['type'], note=pitch, time=current_tick - last_tick))
+        #pitch = int(round(hz_to_midi(event['pitch'])))
+        track.append(Message('note_' + event['type'], note=event['pitch']+LOGIC_MIDI, time=current_tick - last_tick))
         last_tick = current_tick
 
     file.save(path)

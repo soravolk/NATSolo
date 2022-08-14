@@ -38,15 +38,14 @@ class AudioDataset(Dataset):
             audio_length = len(data['audio'])
             # convert to time step
             step_begin = self.random.randint(audio_length - self.sequence_length) // HOP_LENGTH
-            
             all_steps = self.sequence_length // HOP_LENGTH
             step_end = step_begin + all_steps
             # trim audio time to fit the frame
-            begin = step_begin * HOP_LENGTH
-            end = step_end * HOP_LENGTH
+            begin = step_begin * HOP_LENGTH 
+            end = (step_end - 1) * HOP_LENGTH
             # end = begin + self.sequence_length
     
-            result['audio'] = data['audio'][begin:end].to(self.device)
+            result['audio'] = data['audio'][begin:end+1].to(self.device)
             # for labelled data
             if data.get('label') is not None:
               ####### why it should be float?? #######
@@ -126,7 +125,7 @@ class AudioDataset(Dataset):
             assert(audio_path.split("/")[-1][:-3] == note_tsv_path.split("/")[-1][:-3])
 
         # labels' time steps
-        all_steps = audio_length  // HOP_LENGTH  
+        all_steps = audio_length // HOP_LENGTH
         # 0 means silence (not lead guitar)
         tech_group_label = torch.zeros(all_steps, dtype=torch.int8)
         tech_label = torch.zeros(all_steps, dtype=torch.int8)
@@ -144,9 +143,10 @@ class AudioDataset(Dataset):
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
             left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
 
-            right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
+            right = int((end * SAMPLE_RATE) // HOP_LENGTH)
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
-
+            # print('=============================left: ', left)
+            # print('=============================right: ', right)
             # silent_label[left - 2: right + 2] = 1 # not silent
             if technique == 2 or technique == 3 or technique == 4: # slide, bend, trill
                 tech_group_label[left:right] = 1
@@ -161,19 +161,17 @@ class AudioDataset(Dataset):
         for start, end, note in all_note:
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
             left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
-            if left < 2:
-                left = 2
-            elif left > all_steps - 2:
-                left = all_steps - 2
 
-            right = int(round(end * SAMPLE_RATE / HOP_LENGTH))
+            right = int((end * SAMPLE_RATE) // HOP_LENGTH)
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
 
-            note_state_label[left: left + 3] = 1
-            # note_state_label[left - 2: left + 3] = 1 # onset
-            # note_state_label[left + 3: right] = 2 # activate
-            note_state_label[left + 3: right - 1] = 2
-            note_state_label[right - 1] = 0
+            if left + 3 > right:
+                note_state_label[left: right - 1] = 1
+                note_state_label[right - 1] = 0
+            else:
+                note_state_label[left: left + 3] = 1 # onset
+                note_state_label[left + 3: right - 1] = 2 # activate
+                note_state_label[right - 2: right - 1] = 0
 
             note_label[left:right] = note
         

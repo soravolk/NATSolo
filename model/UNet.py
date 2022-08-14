@@ -400,8 +400,6 @@ class UNet(nn.Module):
         audio = batch['audio']
 
         gt_bin = batch['label'].shape[-2] # ground truth bin size
-        print('====================================')
-        print(gt_bin)
         if batch['label'].dim() == 2:
             label = batch['label'].unsqueeze(0)
         else:
@@ -488,8 +486,6 @@ class UNet(nn.Module):
         
         state_pred, tech_note_pred, state_group_post, tech_note_post = self(spec)
         # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
-        print('================================================')
-        print(state_pred.shape[-2])
         state_pred = state_pred[:, :gt_bin, :]
         tech_note_pred = tech_note_pred[:, :gt_bin, :]
 
