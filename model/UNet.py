@@ -201,7 +201,7 @@ class Spec2Roll(nn.Module):
         self.linear_note = nn.Linear(N_BINS, 50)
         self.linear_tech = nn.Linear(N_BINS, 9)
         self.dropout_layer = nn.Dropout(0.5)
-        self.combine_stack = Stack(input_size=66, hidden_dim=768, attn_size=31, attn_group=6, output_dim=59, dropout=0)
+        self.combine_stack = Stack(input_size=66, hidden_dim=768, attn_size=31, attn_group=6, output_dim=66, dropout=0)
         
     def forward(self, x, training):
         # state U-net
@@ -213,59 +213,60 @@ class Spec2Roll(nn.Module):
 
         state = self.linear_state(state_group_post)
         state = torch.sigmoid(state)
-
         group = self.linear_group(state_group_post)
         group = torch.sigmoid(group)
-
         note = self.linear_note(tech_note_post)
         note = torch.sigmoid(note)
-        
         tech = self.linear_tech(tech_note_post)
         tech = torch.sigmoid(tech)
 
-        note_detach_idx = []
-        # tech_detach_idx = []
-        # for i, (n, t) in enumerate(zip(note, tech)):
-        #     for j, (note_frame, tech_frame) in enumerate(zip(n[0], t[0])):
-        for i, (n, s) in enumerate(zip(note, state)):
-            onset = False
-            for j, (note_frame, state_frame) in enumerate(zip(n[0], s[0])):
-                note_state = state_frame.argmax(axis=0)
-                # tech_group = (group[i].squeeze(0))[j].argmax(axis=0)
-                # note_pred = note_frame.argmax(axis=0)
-                # tech_pred = tech_frame.argmax(axis=0)
-                # assert(note_state < 3 and tech_group < 4)
-                if onset == False and note_state == 1:
-                    onset = True
-
-                if onset:
-                    if note_state != 0:
-                        continue
-                    else:
-                        onset = False
-                note_detach_idx.append((i, j))
-                # elif tech_group == 1 and (tech_pred not in [1, 2, 3]): 
-                #     tech_detach_idx.append((i, j))
-                # elif tech_group == 2 and (tech_pred not in [5, 7, 9]): 
-                #     tech_detach_idx.append((i, j))
-                # elif tech_group == 3 and (tech_pred not in [4, 6]): 
-                #     tech_detach_idx.append((i, j))
-                # elif tech_group == 0:
-                #     tech_detach_idx.append((i, j))
         state_group = torch.cat((state, group), -1)
         x = torch.cat((state_group, note, tech), -1)
         x, a = self.combine_stack(x.squeeze(1))
+        proxy = torch.sigmoid(x)
+        dim = proxy.shape[-2]
+        state = proxy[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
+        group = proxy[:,:,3:7].reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
+        note = proxy[:,:,7:57].reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
+        tech = proxy[:,:,57:].reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
+
+        note_detach_idx = []
+        tech_detach_idx = []
+        for i, (n, s, t, g) in enumerate(zip(note, state, tech, group)):
+            onset = False
+            for j, (note_frame, state_frame, tech_frame, group_frame) in enumerate(zip(n, s, t, g)):
+                # assert(note_state < 3 and tech_group < 4)
+                if onset == False and state_frame == 1:
+                    onset = True
+
+                if onset:
+                    if state_frame != 0:
+                        continue
+                    else:
+                        onset = False
+                if onset == False:
+                    note_detach_idx.append((i, j))
+                elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
+                    tech_detach_idx.append((i, j))
+                elif group_frame == 2 and (tech_frame not in [5, 7, 9]): 
+                    tech_detach_idx.append((i, j))
+                elif group_frame == 3 and (tech_frame not in [4, 6]): 
+                    tech_detach_idx.append((i, j))
+                elif group_frame == 0:
+                    tech_detach_idx.append((i, j))
         # detach invalid prediction
         for idx in note_detach_idx:
-            x[idx[0]][idx[1]] = x[idx[0]][idx[1]].detach()
-        # for idx in tech_detach_idx:
-        #     x[idx[0]][idx[1]][50:] = x[idx[0]][idx[1]][50:].detach()
-        tech_note = torch.sigmoid(x)
+            x[idx[0]][idx[1]][7:] = x[idx[0]][idx[1]][7:].detach()
+        for idx in tech_detach_idx:
+            x[idx[0]][idx[1]][57:] = x[idx[0]][idx[1]][57:].detach()
 
+        x = torch.sigmoid(x)
+        state_group = x[:,:,:7] 
+        tech_note = x[:,:,7:]
         if training:
-            return state_group.squeeze(1), tech_note, None, None
+            return state_group, tech_note, None, None
         else:
-            return state_group.squeeze(1), tech_note, state_group_post, tech_note_post
+            return state_group, tech_note, state_group_post, tech_note_post
 
 ### VAT for unlabelled data ###
 ''' loss for VAT '''
