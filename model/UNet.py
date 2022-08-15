@@ -225,14 +225,14 @@ class Spec2Roll(nn.Module):
         x, a = self.combine_stack(x.squeeze(1))
         proxy = torch.sigmoid(x)
         dim = proxy.shape[-2]
-        state = proxy[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
-        group = proxy[:,:,3:7].reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
-        note = proxy[:,:,7:57].reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
-        tech = proxy[:,:,57:].reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
+        state_pred = proxy[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
+        group_pred = proxy[:,:,3:7].reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
+        note_pred = proxy[:,:,7:57].reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
+        tech_pred = proxy[:,:,57:].reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
 
         note_detach_idx = []
         tech_detach_idx = []
-        for i, (n, s, t, g) in enumerate(zip(note, state, tech, group)):
+        for i, (n, s, t, g) in enumerate(zip(note_pred, state_pred, tech_pred, group_pred)):
             onset = False
             for j, (note_frame, state_frame, tech_frame, group_frame) in enumerate(zip(n, s, t, g)):
                 # assert(note_state < 3 and tech_group < 4)
@@ -244,11 +244,12 @@ class Spec2Roll(nn.Module):
                         continue
                     else:
                         onset = False
+
                 if onset == False:
                     note_detach_idx.append((i, j))
                 elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
                     tech_detach_idx.append((i, j))
-                elif group_frame == 2 and (tech_frame not in [5, 7, 9]): 
+                elif group_frame == 2 and (tech_frame not in [5, 7, 8]): 
                     tech_detach_idx.append((i, j))
                 elif group_frame == 3 and (tech_frame not in [4, 6]): 
                     tech_detach_idx.append((i, j))

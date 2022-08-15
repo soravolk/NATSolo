@@ -21,7 +21,7 @@ from itertools import cycle
 
 from model.UNet import UNet
 from model.dataset import prepare_VAT_dataset, compute_dataset_weight
-from model.utils import summary, flatten_attention, plot_confusion_matrix
+from model.utils import *
 from model.convert import *
 from model.evaluate_functions import *
 ex = Experiment('train_original')
@@ -31,7 +31,7 @@ ds_ksize, ds_stride = (2,2),(2,2)
 mode = 'imagewise'
 sparsity = 2
 output_channel = 2
-logging_freq = 100 #100
+logging_freq = 1 #100
 saving_freq = 200
 
 @ex.config
@@ -54,7 +54,7 @@ def config():
     batch_size = 8
     train_batch_size = 8
     val_batch_size = 3
-    sequence_length = 327680 // 2
+    sequence_length = 163840 # 327680
     if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
         batch_size //= 2
         sequence_length //= 2
@@ -69,42 +69,11 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_detachByStateAndGroup'
-    
-def plot_spec_and_post(writer, ep, source, figname):
-    fig, axs = plt.subplots(2, 2, figsize=(24,8))
-    axs = axs.flat
-    for idx, i in enumerate(source.cpu().detach().numpy()):
-        axs[idx].imshow(i.transpose())
-        axs[idx].axis('off')
-    fig.tight_layout()
-    writer.add_figure(figname, fig , ep)
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_plotFeatures'
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                     VAT, VAT_start, reconstruction, tech_weights=None):
-    technique_dict = {
-        0: 'no tech',
-        1: 'slide',
-        2: 'bend',
-        3: 'trill',
-        4: 'mute',
-        5: 'pull',
-        6: 'harmonic',
-        7: 'hammer',
-        8: 'tap'
-    }
-    tech_trans = {
-        0: '0',
-        1: 's',
-        2: 'b',
-        3: 'tri',
-        4: 'x',
-        5: 'p',
-        6: 'har',
-        7: 'h',
-        8: 't'
-    }
     # log various result from the validation audio
     model.eval()
 
@@ -130,7 +99,6 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     # visualized validation audio
     predictions, losses, mel, state_group_post, tech_note_post = model.run_on_batch(batch_visualize, None, VAT)
     loss = sum(losses.values())
-    
     # Show the original transcription and spectrograms
     if ep==1:
         # spectrogram
@@ -158,134 +126,24 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         plot_spec_and_post(writer, ep, state_group_post, 'images/state_group_post')
         # plot tech_note_post
         plot_spec_and_post(writer, ep, tech_note_post, 'images/tech_note_post')
-        ##################################################### 
+
         # Show the transcription result in validation period
         print('Show the transcription result')
-        fig = plt.figure(constrained_layout=True, figsize=(48,20))
-        subfigs = fig.subfigures(2, 2)
-        subfigs = subfigs.flat
-        for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'])):
-            subfigs[i].suptitle(f'Transcription {i}')
-            ax = subfigs[i].subplots(2,1)
-            ax = ax.flat
-            # note transcription
-            ax[0].set_title('Note')
-            ax[0].set_xlabel('time (t)')
-            ax[0].set_ylabel('midi note numbers')
-            for j, t in enumerate(x):
-                x_val = np.arange(t[0], t[1], 0.1)
-                y_val = np.full(len(x_val), y[j])
-                ax[0].plot(x_val, y_val)
-                ax[0].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
-            # techique transcription
-            ax[1].set_title('Technique')
-            ax[1].set_xlabel('time (t)')
-            ax[1].set_ylabel('technique')
-            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8], ['no_tech', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
-            for j, t in enumerate(x_tech):
-                x_val = np.arange(t[0], t[1], 0.1)
-                y_val = np.full(len(x_val), y_tech[j])
-                ax[1].plot(x_val, y_val)
-                ax[1].vlines(t[0], ymin=0, ymax=8, linestyles='dotted')
-        writer.add_figure('transcription/ground_truth', fig, ep)
+        plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'])
 
-        fig = plt.figure(constrained_layout=True, figsize=(48,20))
-        subfigs = fig.subfigures(2, 2)
-        subfigs = subfigs.flat
-        for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'])):
-            subfigs[i].suptitle(f'Transcription {i}')
-            ax = subfigs[i].subplots(2,1)
-            ax = ax.flat
-            # note transcription
-            ax[0].set_title('Note')
-            ax[0].set_xlabel('time (t)')
-            ax[0].set_ylabel('midi note numbers')
-            for j, t in enumerate(x):
-                x_val = np.arange(t[0], t[1], 0.1)
-                y_val = np.full(len(x_val), y[j])
-                ax[0].plot(x_val, y_val)
-                ax[0].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
-            # techique transcription
-            ax[1].set_title('Technique')
-            ax[1].set_xlabel('time (t)')
-            ax[1].set_ylabel('technique')
-            ax[1].set_yticks([0, 1, 2, 3, 4, 5, 6, 7, 8], ['no_tech', 'slide', 'bend', 'trill', 'mute', 'pull', 'harmonic', 'hammer', 'tap'])
-            for j, t in enumerate(x_tech):
-                x_val = np.arange(t[0], t[1], 0.1)
-                y_val = np.full(len(x_val), y_tech[j])
-                ax[1].plot(x_val, y_val)
-                ax[1].vlines(t[0], ymin=0, ymax=8, linestyles='dotted')
-        writer.add_figure('transcription/prediction', fig, ep)
-        
-        # another representation of transcription
-        fig = plt.figure(constrained_layout=True, figsize=(48,20))
-        subfigs = fig.subfigures(2, 2)
-        subfigs = subfigs.flat
-        for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'])):
-            subfigs[i].suptitle(f'Transcription {i}')
-            ax = subfigs[i].subplots(2, 1, gridspec_kw={'height_ratios': [6,1]})
-            ax = ax.flat
-            # note transcription
-            ax[0].tick_params(labelbottom=False)
-            ax[0].set_title('Note')
-            ax[0].set_ylabel('midi note numbers')
-            for j, t in enumerate(x):
-                x_val = np.arange(t[0], t[1], 0.1)
-                y_val = np.full(len(x_val), y[j])
-                ax[0].plot(x_val, y_val)
-                ax[0].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
-            # techique transcription
-            ax[1].set_xlabel('time (t)')
-            ax[1].set_ylabel('technique')
-            for j, t in enumerate(x_tech):
-                x_val = np.arange(t[0], t[1], 0.1)
-                # y_val = np.full(len(x_val), y_tech[j])
-                y_val = np.ones(len(x_val))
-                ax[1].text(x_val[len(x_val) // 2], 1, tech_trans[y_tech[j]], fontsize=35)
+        plot_transcription(writer, ep, 'transcription/prediction', mel, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'])
 
-                ax[1].plot(x_val, y_val)
-                ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
-        writer.add_figure('transcription/ground_truth_B', fig, ep)
-
-        fig = plt.figure(constrained_layout=True, figsize=(48,20))
-        subfigs = fig.subfigures(2, 2)
-        subfigs = subfigs.flat
-        for i, (x, y, x_tech, y_tech) in enumerate(zip(transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'])):
-            subfigs[i].suptitle(f'Transcription {i}')
-            ax = subfigs[i].subplots(2, 1, gridspec_kw={'height_ratios': [6,1]})
-            ax = ax.flat
-            # note transcription
-            ax[0].tick_params(labelbottom=False)
-            ax[0].set_title('Note')
-            ax[0].set_ylabel('midi note numbers')
-            for j, t in enumerate(x):
-                x_val = np.arange(t[0], t[1], 0.1)
-                y_val = np.full(len(x_val), y[j])
-                ax[0].plot(x_val, y_val)
-                ax[0].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
-            # techique transcription
-            ax[1].set_xlabel('time (t)')
-            ax[1].set_ylabel('technique')
-            for j, t in enumerate(x_tech):
-                x_val = np.arange(t[0], t[1], 0.1)
-                # y_val = np.full(len(x_val), y_tech[j])
-                y_val = np.ones(len(x_val))
-                ax[1].text(x_val[len(x_val) // 2], 1, tech_trans[y_tech[j]], fontsize=35)
-
-                ax[1].plot(x_val, y_val)
-                ax[1].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
-        writer.add_figure('transcription/prediction_B', fig, ep)
-        #####################################################
-        print('Plot confusion matrix')
         # Plot confusion matrix
+        print('Plot confusion matrix')
         for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
             if output_key in cm_dict.keys():
                 if output_key in ['cm', 'cm_2']:
-                    plot_confusion_matrix(cm_dict[output_key], technique_dict, writer, ep, output_key, f'images/{output_key}', 'd', 10)
+                    plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', 'd', 10)
                 else:
-                    plot_confusion_matrix(cm_dict[output_key], technique_dict, writer, ep, output_key, f'images/{output_key}', '.2f', 6)               
-        print('adversarial samples')
+                    plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)    
+
         # show adversarial samples    
+        print('adversarial samples')
         if predictions['r_adv'] is not None: 
             fig, axs = plt.subplots(2, 2, figsize=(24,8))
             axs = axs.flat
