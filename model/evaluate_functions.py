@@ -48,11 +48,11 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
 
         ############ evaluate techniques ############
         # get the confusion matrix
-        cm, cm_recall, cm_precision = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].squeeze(0).cpu().numpy())
+        cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].squeeze(0).cpu().numpy())
         # get the recall and precision of techniques
         for key, value in technique_dict.items():
-            p = cm_precision[key - 1][key - 1]
-            r = cm_recall[key - 1][key - 1]
+            p = cm_dict['Precision'][key - 1][key - 1]
+            r = cm_dict['Recall'][key - 1][key - 1]
             f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
             metrics[f'metric/{value}/precision'].append(p)
             metrics[f'metric/{value}/recall'].append(r)
@@ -100,13 +100,6 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
         # metrics['metric/note-with-offsets/f1'].append(f)
         # metrics['metric/note-with-offsets/overlap'].append(o)
 
-        # may implement frame_metrics later
-        cm_dict = {
-            'cm': cm,
-            'Precision': cm_precision,
-            'Recall': cm_recall,
-        }
-
         if save_path is not None:
             os.makedirs(save_path, exist_ok=True)
             file_path = os.path.join(save_path, os.path.basename(val_data['path']) + '.file.png')
@@ -115,7 +108,7 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
             save_pianoroll(pred_path, pred['technique'])
     
         song_count += 1
-    return metrics, cm_dict
+    return metrics
 
 def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):
     model.eval()

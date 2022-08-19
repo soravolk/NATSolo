@@ -80,7 +80,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics, cm_dict = evaluate_prediction(valid_set, model, ep=ep, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics = evaluate_prediction(valid_set, model, ep=ep, reconstruction=reconstruction, tech_weights=tech_weights)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -104,8 +104,8 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     group_feature = features[3].squeeze(1)
     note_feature = features[4].squeeze(1)
     tech_feature = features[5].squeeze(1)
-    
-    transcriptions = get_transcription(batch_visualize['label'], predictions)
+    # get transcriptions and confusion matrix
+    transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions) 
     loss = sum(losses.values())
     # Show the original transcription and spectrograms
     if ep==1:

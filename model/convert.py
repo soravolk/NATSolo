@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from .constants import *
 
-def get_transcription(labels, preds):
+def get_transcription_and_cmx(labels, preds):
     transcriptions = defaultdict(list)
 
     for (label, tech, note, note_state, tech_group) in zip(labels, preds['tech'], preds['note'], preds['note_state'], preds['tech_group']):
@@ -28,8 +28,13 @@ def get_transcription(labels, preds):
         transcriptions['tech_interval'].append(tech_i_est)
         transcriptions['note'].append(note_est + LOGIC_MIDI)
         transcriptions['note_interval'].append(note_i_est)
+    
+    # get macro metrics
+    tech_label = labels[:,:,57:].argmax(axis=2).flatten()
+    tech_pred = preds['tech'].flatten()
+    cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), tech_pred.cpu().numpy())
 
-    return transcriptions
+    return transcriptions, cm_dict
 
 def get_confusion_matrix(correct_labels, predict_labels):
     """
@@ -65,7 +70,13 @@ def get_confusion_matrix(correct_labels, predict_labels):
             cm_precision.append(col[i] / total if (col[j] != 0 or total != 0) else 0)
     cm_precision = np.reshape(cm_precision, cm.shape).T
 
-    return cm, cm_recall, cm_precision
+    cm_dict = {
+        'cm': cm,
+        'Precision': cm_precision,
+        'Recall': cm_recall,
+    }
+
+    return cm_dict
 
 def evaluate_frame_accuracy(correct_labels, predict_labels):
     matched = 0

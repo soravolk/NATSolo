@@ -15,7 +15,6 @@ def cycle(iterable):
         for item in iterable:
             yield item
 
-
 def summary(model, file=sys.stdout):
     def repr(model):
         # We treat the extra repr like the sub-module, one item per line
