@@ -211,30 +211,30 @@ class Spec2Roll(nn.Module):
         enc,s,c = self.Unet2_encoder(x)
         tech_note_post = self.Unet2_decoder(enc,s,c)
 
-        state = self.linear_state(state_group_post)
-        state = torch.sigmoid(state)
-        group = self.linear_group(state_group_post)
-        group = torch.sigmoid(group)
-        note = self.linear_note(tech_note_post)
-        note = torch.sigmoid(note)
-        tech = self.linear_tech(tech_note_post)
-        tech = torch.sigmoid(tech)
+        state_feature = self.linear_state(state_group_post)
+        state = torch.sigmoid(state_feature)
+        group_feature = self.linear_group(state_group_post)
+        group = torch.sigmoid(group_feature)
+        note_feature = self.linear_note(tech_note_post)
+        note = torch.sigmoid(note_feature)
+        tech_feature = self.linear_tech(tech_note_post)
+        tech = torch.sigmoid(tech_feature)
 
         state_group = torch.cat((state, group), -1)
         x = torch.cat((state_group, note, tech), -1)
         x, a = self.combine_stack(x.squeeze(1))
         proxy = torch.sigmoid(x)
         dim = proxy.shape[-2]
-        state_pred = proxy[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
-        group_pred = proxy[:,:,3:7].reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
-        note_pred = proxy[:,:,7:57].reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
-        tech_pred = proxy[:,:,57:].reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
+        state = proxy[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
+        # group = proxy[:,:,3:7].reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
+        # note = proxy[:,:,7:57].reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
+        # tech = proxy[:,:,57:].reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
 
         note_detach_idx = []
-        tech_detach_idx = []
-        for i, (n, s, t, g) in enumerate(zip(note_pred, state_pred, tech_pred, group_pred)):
+        # tech_detach_idx = []
+        for i, s in enumerate(state):
             onset = False
-            for j, (note_frame, state_frame, tech_frame, group_frame) in enumerate(zip(n, s, t, g)):
+            for j, state_frame in enumerate(s):
                 # assert(note_state < 3 and tech_group < 4)
                 if onset == False and state_frame == 1:
                     onset = True
@@ -247,27 +247,27 @@ class Spec2Roll(nn.Module):
 
                 if onset == False:
                     note_detach_idx.append((i, j))
-                elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
-                    tech_detach_idx.append((i, j))
-                elif group_frame == 2 and (tech_frame not in [5, 7, 8]): 
-                    tech_detach_idx.append((i, j))
-                elif group_frame == 3 and (tech_frame not in [4, 6]): 
-                    tech_detach_idx.append((i, j))
-                elif group_frame == 0:
-                    tech_detach_idx.append((i, j))
+                # elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
+                #     tech_detach_idx.append((i, j))
+                # elif group_frame == 2 and (tech_frame not in [5, 7, 8]): 
+                #     tech_detach_idx.append((i, j))
+                # elif group_frame == 3 and (tech_frame not in [4, 6]): 
+                #     tech_detach_idx.append((i, j))
+                # elif group_frame == 0:
+                #     tech_detach_idx.append((i, j))
         # detach invalid prediction
         for idx in note_detach_idx:
             x[idx[0]][idx[1]][7:] = x[idx[0]][idx[1]][7:].detach()
-        for idx in tech_detach_idx:
-            x[idx[0]][idx[1]][57:] = x[idx[0]][idx[1]][57:].detach()
+        # for idx in tech_detach_idx:
+        #     x[idx[0]][idx[1]][57:] = x[idx[0]][idx[1]][57:].detach()
 
         x = torch.sigmoid(x)
         state_group = x[:,:,:7] 
         tech_note = x[:,:,7:]
         if training:
-            return state_group, tech_note, None, None
+            return state_group, tech_note, None
         else:
-            return state_group, tech_note, state_group_post, tech_note_post
+            return state_group, tech_note, (state_group_post, tech_note_post, state_feature, group_feature, note_feature, tech_feature)
 
 ### VAT for unlabelled data ###
 ''' loss for VAT '''
@@ -394,8 +394,8 @@ class UNet(nn.Module):
 
     def forward(self, x):
         # U-net 1
-        state, tech_note, state_group_post, tech_note_post = self.transcriber(x, self.training)
-        return state, tech_note, state_group_post, tech_note_post
+        state, tech_note, features = self.transcriber(x, self.training)
+        return state, tech_note, features
 
     def run_on_batch(self, batch, batch_ul=None, VAT=False):
         device = self.device
@@ -486,7 +486,7 @@ class UNet(nn.Module):
             r_norm_l = torch.tensor(0.)
         
         
-        state_pred, tech_note_pred, state_group_post, tech_note_post = self(spec)
+        state_pred, tech_note_pred, features = self(spec)
         # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
         state_pred = state_pred[:, :gt_bin, :]
         tech_note_pred = tech_note_pred[:, :gt_bin, :]
@@ -525,7 +525,7 @@ class UNet(nn.Module):
                     'loss/test_LDS_l': lds_l,
                     'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                     }
-            return predictions, losses, spec[:,1,:,:].squeeze(1), state_group_post.squeeze(1), tech_note_post.squeeze(1)
+            return predictions, losses, spec[:,1,:,:].squeeze(1), features
 
     def load_my_state_dict(self, state_dict):
         """Useful when loading part of the weights. From https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2"""

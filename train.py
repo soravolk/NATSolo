@@ -69,7 +69,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_plotFeatures'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_DetachOnlyByNotes'
 
 def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -97,7 +97,13 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 writer.add_scalar(key, np.mean(values), global_step=ep)
 
     # visualized validation audio
-    predictions, losses, mel, state_group_post, tech_note_post = model.run_on_batch(batch_visualize, None, VAT)
+    predictions, losses, mel, features = model.run_on_batch(batch_visualize, None, VAT)
+    state_group_post = features[0].squeeze(1)
+    tech_note_post = features[1].squeeze(1)
+    state_feature = features[2].squeeze(1)
+    group_feature = features[3].squeeze(1)
+    note_feature = features[4].squeeze(1)
+    tech_feature = features[5].squeeze(1)
     loss = sum(losses.values())
     # Show the original transcription and spectrograms
     if ep==1:
@@ -108,6 +114,10 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         # plot tech_note_post
         plot_spec_and_post(writer, ep, tech_note_post, 'images/tech_note_post')
 
+        plot_spec_and_post(writer, ep, state_feature, 'images/state_feature')
+        plot_spec_and_post(writer, ep, group_feature, 'images/group_feature')
+        plot_spec_and_post(writer, ep, note_feature, 'images/note_feature')
+        plot_spec_and_post(writer, ep, tech_feature, 'images/tech_feature')
         # when the spectrogram adds adversarial direction
         # fig, axs = plt.subplots(2, 2, figsize=(24,4))
         # axs = axs.flat
@@ -127,6 +137,10 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         # plot tech_note_post
         plot_spec_and_post(writer, ep, tech_note_post, 'images/tech_note_post')
 
+        plot_spec_and_post(writer, ep, state_feature, 'images/state_feature')
+        plot_spec_and_post(writer, ep, group_feature, 'images/group_feature')
+        plot_spec_and_post(writer, ep, note_feature, 'images/note_feature')
+        plot_spec_and_post(writer, ep, tech_feature, 'images/tech_feature')
         # Show the transcription result in validation period
         print('Show the transcription result')
         plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'])

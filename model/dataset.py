@@ -44,7 +44,6 @@ class AudioDataset(Dataset):
             begin = step_begin * HOP_LENGTH 
             end = (step_end - 1) * HOP_LENGTH
             # end = begin + self.sequence_length
-    
             result['audio'] = data['audio'][begin:end+1].to(self.device)
             # for labelled data
             if data.get('label') is not None:
