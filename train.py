@@ -80,7 +80,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics, cm_dict, transcriptions = evaluate_prediction(valid_set, model, ep=ep, logging_freq=logging_freq, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics, cm_dict = evaluate_prediction(valid_set, model, ep=ep, reconstruction=reconstruction, tech_weights=tech_weights)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -104,6 +104,8 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
     group_feature = features[3].squeeze(1)
     note_feature = features[4].squeeze(1)
     tech_feature = features[5].squeeze(1)
+    
+    transcriptions = get_transcription(batch_visualize['label'], predictions)
     loss = sum(losses.values())
     # Show the original transcription and spectrograms
     if ep==1:
@@ -156,17 +158,17 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                 else:
                     plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)    
 
-        # show adversarial samples    
-        print('adversarial samples')
-        if predictions['r_adv'] is not None: 
-            fig, axs = plt.subplots(2, 2, figsize=(24,8))
-            axs = axs.flat
-            for idx, i in enumerate(mel.cpu().detach().numpy()):
-                x_adv = i.transpose()+predictions['r_adv'][idx][0].t().cpu().numpy()
-                axs[idx].imshow(x_adv, vmax=1, vmin=0, cmap='jet', origin='lower')
-                axs[idx].axis('off')
-            fig.tight_layout()
-            writer.add_figure('images/Spec_adv', fig , ep)
+        # # show adversarial samples    
+        # print('adversarial samples')
+        # if predictions['r_adv'] is not None: 
+        #     fig, axs = plt.subplots(2, 2, figsize=(24,8))
+        #     axs = axs.flat
+        #     for idx, i in enumerate(mel.cpu().detach().numpy()):
+        #         x_adv = i.transpose()+predictions['r_adv'][idx][0].t().cpu().numpy()
+        #         axs[idx].imshow(x_adv, vmax=1, vmin=0, cmap='jet', origin='lower')
+        #         axs[idx].axis('off')
+        #     fig.tight_layout()
+        #     writer.add_figure('images/Spec_adv', fig , ep)
 
 def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
     model.train()

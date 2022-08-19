@@ -1,11 +1,49 @@
 from sklearn.metrics import confusion_matrix
 from mido import Message, MidiFile, MidiTrack
 from mir_eval.util import hz_to_midi
+from collections import defaultdict
 import numpy as np
 import torch
 from .constants import *
 
+def get_transcription(labels, preds):
+    transcriptions = defaultdict(list)
+
+    for (label, tech, note, note_state, tech_group) in zip(labels, preds['tech'], preds['note'], preds['note_state'], preds['tech_group']):
+        # get label from one hot vectors
+        state_label = label[:,:3].argmax(axis=1)
+        group_label = label[:,3:7].argmax(axis=1)
+        note_label = label[:,7:57].argmax(axis=1)
+        tech_label = label[:,57:].argmax(axis=1)    
+        tech_ref, tech_i_ref = extract_technique(tech_label) # (tech_label, state_label)
+        tech_est, tech_i_est = extract_technique(tech.squeeze(0))
+        note_ref, note_i_ref = extract_notes(note_label, state_label, group_label)
+        note_est, note_i_est = extract_notes(note.squeeze(0), note_state.squeeze(0), tech_group.squeeze(0))
+
+        transcriptions['tech_gt'].append(tech_ref)
+        transcriptions['tech_interval_gt'].append(tech_i_ref)
+        transcriptions['note_gt'].append(note_ref + LOGIC_MIDI)
+        transcriptions['note_interval_gt'].append(note_i_ref)
+        transcriptions['tech'].append(tech_est)
+        transcriptions['tech_interval'].append(tech_i_est)
+        transcriptions['note'].append(note_est + LOGIC_MIDI)
+        transcriptions['note_interval'].append(note_i_est)
+
+    return transcriptions
+
 def get_confusion_matrix(correct_labels, predict_labels):
+    """
+    Generate confusion matrix, recall and precision
+    Parameters
+    ----------
+    correct_labels: 
+    predict_labels: 
+    Returns
+    -------
+    cm: 
+    cm_recall:
+    cm_precision:
+    """
     # ignore 'no tech'
     labels = [1, 2, 3, 4, 5, 6, 7, 8]
 
@@ -51,7 +89,7 @@ def evaluate_frame_accuracy_per_tech(tech, correct_labels, predict_labels):
     
     return accuracy
 
-def extract_technique(techs, states=None):
+def extract_technique(techs, states=None, scale2time=True):
     """
     Finds the note timings based on the onsets and tech information
     Parameters
@@ -111,8 +149,12 @@ def extract_technique(techs, states=None):
                 intervals.append([onset, offset - 0.1])          
             else:
                 i += 1
+    # convert time steps to seconds
+    scaling = HOP_LENGTH / SAMPLE_RATE
+    if scale2time:
+        intervals = (np.array(intervals) * scaling).reshape(-1, 2)
 
-    return np.array(techniques), np.array(intervals)
+    return np.array(techniques), intervals
 
 
 def techniques_to_frames(techniques, intervals, shape):
@@ -136,7 +178,7 @@ def techniques_to_frames(techniques, intervals, shape):
     tehcniques = [roll[t, :].nonzero()[0] for t in time]
     return time, tehcniques
 
-def extract_notes(notes, states=None, groups=None):
+def extract_notes(notes, states=None, groups=None, scale2time=True):
     """
     Finds the note timings based on the onsets and frames information
     Parameters
@@ -193,7 +235,11 @@ def extract_notes(notes, states=None, groups=None):
                     pitches.append(onset_note)
                     intervals.append([start, i - 0.1])
 
-    return np.array(pitches), np.array(intervals)
+    scaling = HOP_LENGTH / SAMPLE_RATE
+    if scale2time:
+        intervals = (np.array(intervals) * scaling).reshape(-1, 2)
+
+    return np.array(pitches), intervals
 
 def save_midi(path, pitches, intervals):
     """

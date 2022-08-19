@@ -493,7 +493,6 @@ class UNet(nn.Module):
 
         if self.training:
             predictions = {
-                    'tech_note': tech_note_pred.reshape(-1, 59),
                     'note_state': state_pred[:,:,:3].reshape(-1, 3),
                     'tech_group': state_pred[:,:,3:].reshape(-1, 4),
                     'note': tech_note_pred[:,:,:50].reshape(-1, 50),
@@ -512,7 +511,6 @@ class UNet(nn.Module):
         else:
             # testing
             predictions = {
-                    'tech_note': tech_note_pred.reshape(-1, 59),
                     'note_state': state_pred[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
                     'tech_group': state_pred[:,:,3:].reshape(-1, 4).argmax(axis=1).reshape(-1, gt_bin),
                     'note': tech_note_pred[:,:,:50].reshape(-1, 50).argmax(axis=1).reshape(-1, gt_bin),
