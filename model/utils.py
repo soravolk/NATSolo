@@ -66,7 +66,7 @@ def plot_spec_and_post(writer, ep, source, figname):
     fig, axs = plt.subplots(2, 2, figsize=(24,8))
     axs = axs.flat
     for idx, i in enumerate(source):
-        axs[idx].imshow(i.transpose())
+        axs[idx].imshow(np.flip(i.transpose(), 0))
         axs[idx].axis('off')
     fig.tight_layout()
     writer.add_figure(figname, fig , ep)
@@ -122,7 +122,7 @@ def plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_int
         ax = ax.flat
         # spectrogram
         #S_dB = librosa.power_to_db(spec, ref=np.max)
-        librosa.display.specshow(np.flip(spec.transpose(), 0), y_axis='mel', sr=SAMPLE_RATE, fmax=MEL_FMAX, ax=ax[0])
+        librosa.display.specshow(spec.transpose(), y_axis='mel', sr=SAMPLE_RATE, fmax=MEL_FMAX, ax=ax[0])
         #ax[0].imshow(spec.transpose())
         ax[0].set_ylabel('spectrogram')
         #ax[0].set_xlim([0, 163840 // HOP_LENGTH])
