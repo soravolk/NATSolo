@@ -516,7 +516,7 @@ class UNet(nn.Module):
                     'note': tech_note_pred[:,:,:50].reshape(-1, 50).argmax(axis=1).reshape(-1, gt_bin),
                     'tech': tech_note_pred[:,:,50:].reshape(-1, 9).argmax(axis=1).reshape(-1, gt_bin),
                     'r_adv': r_adv,
-                    }                        
+                    }                       
             losses = {
                     'loss/test_state': F.binary_cross_entropy(state_pred, state_label, weight=self.weights),
                     'loss/test_tech_note': F.binary_cross_entropy(tech_note_pred, note_tech_label),

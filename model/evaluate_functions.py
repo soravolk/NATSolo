@@ -28,8 +28,11 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
     }
 
     metrics = defaultdict(list) # a safe dict
-
-    song_count = 0
+    macro_cm = None
+    macro_note_pred = []
+    macro_state_pred = []
+    macro_note_label = []
+    macro_state_label = []
     for val_data in tqdm(data):
         pred, losses, _, _ = model.run_on_batch(val_data, None, False)
         
@@ -38,7 +41,8 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
         group_label = val_data['label'][:,3:7].argmax(axis=1)
         note_label = val_data['label'][:,7:57].argmax(axis=1)
         tech_label = val_data['label'][:,57:].argmax(axis=1)
-
+        macro_note_label.extend(note_label)
+        macro_state_label.extend(state_label)
         for key, loss in losses.items():
             metrics[key].append(loss.item())
 
@@ -49,6 +53,11 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
         ############ evaluate techniques ############
         # get the confusion matrix
         cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].squeeze(0).cpu().numpy())
+        # sum up macro confusion matrix
+        if macro_cm is None:
+            macro_cm = cm_dict['cm']
+        else:
+            macro_cm += cm_dict['cm']
         # get the recall and precision of techniques
         for key, value in technique_dict.items():
             p = cm_dict['Precision'][key - 1][key - 1]
@@ -63,26 +72,18 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
 
         pred['note'].squeeze_(0)
         pred['note_state'].squeeze_(0)
+        macro_note_pred.extend(pred['note'])
+        macro_state_pred.extend(pred['note_state'])
         # get techinique and interval
         tech_ref, tech_i_ref = extract_technique(tech_label, scale2time=True) # (tech_label, state_label)
         tech_est, tech_i_est = extract_technique(pred['tech'].squeeze(0), scale2time=True) # (pred['tech'], pred['note_state'])
-        # get note and interval
-        note_ref, note_i_ref = extract_notes(note_label, state_label, group_label, scale2time=True)
-        note_est, note_i_est = extract_notes(pred['note'], pred['note_state'], pred['tech_group'].squeeze(0), scale2time=True)
-
-        # save midi
-        midi_path = os.path.join('midi', f'song{song_count}_ep{ep}.midi')
-        save_midi(midi_path, note_est, note_i_est)
-        # save ground truth midi
-        gt_midi_path = os.path.join('midi', f'gt_song{song_count}.midi')
-        save_midi(gt_midi_path, note_ref, note_i_ref)
+        ############ get note and interval ############ 
+        note_ref, note_i_ref = extract_notes(note_label, state_label)
+        note_est, note_i_est = extract_notes(pred['note'], pred['note_state'])
 
         ############ evaluate notes ############
-        # Converting midi number to frequency
-        note_ref_hz = np.array([midi_to_hz(MIN_MIDI + midi) for midi in note_ref])
-        note_est_hz = np.array([midi_to_hz(MIN_MIDI + midi) for midi in note_est])
         acc = evaluate_frame_accuracy(note_label, pred['note']) # frame level
-        p, r, f, o = evaluate_notes(note_i_ref, note_ref_hz, note_i_est, note_est_hz, offset_ratio=None)
+        p, r, f, o = evaluate_notes(note_i_ref, note_ref, note_i_est, note_est, offset_ratio=None)
         metrics['metric/note/accuracy'].append(acc)
         metrics['metric/note/precision'].append(p)
         metrics['metric/note/recall'].append(r)
@@ -107,7 +108,26 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
             pred_path = os.path.join(save_path, os.path.basename(val_data['path']) + '.pred.png')
             save_pianoroll(pred_path, pred['technique'])
     
-        song_count += 1
+    ############ get the macro recall and precision of technique s############ 
+    macro_precision, macro_recall = get_prec_recall(macro_cm)
+    for key, value in technique_dict.items():
+        p = macro_precision[key - 1][key - 1]
+        r = macro_recall[key - 1][key - 1]
+        f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
+        metrics[f'metric/{value}/macro_precision'].append(p)
+        metrics[f'metric/{value}/macro_recall'].append(r)
+        metrics[f'metric/{value}/macro_f1'].append(f)
+    ############ get macro note metrics ############
+    macro_note_label = torch.tensor(macro_note_label)
+    macro_note_pred = torch.tensor(macro_note_pred)
+    macro_note_ref, macro_note_i_ref = extract_notes(macro_note_label, torch.tensor(macro_state_label))
+    macro_note_est, macro_note_i_est = extract_notes(macro_note_pred, torch.tensor(macro_state_pred))
+    acc = evaluate_frame_accuracy(macro_note_label, macro_note_pred) # frame level
+    p, r, f, o = evaluate_notes(macro_note_i_ref, macro_note_ref, macro_note_i_est, macro_note_est, offset_ratio=None)
+    metrics['metric/note/accuracy_macro'].append(acc)
+    metrics['metric/note/precision_macro'].append(p)
+    metrics['metric/note/recall_macro'].append(r)
+    metrics['metric/note/f1_macro'].append(f)
     return metrics
 
 def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):

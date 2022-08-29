@@ -31,7 +31,7 @@ ds_ksize, ds_stride = (2,2),(2,2)
 mode = 'imagewise'
 sparsity = 2
 output_channel = 2
-logging_freq = 1 #100
+logging_freq = 100 #100
 saving_freq = 200
 
 @ex.config
@@ -96,44 +96,19 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
             if key.startswith('loss/'):
                 writer.add_scalar(key, np.mean(values), global_step=ep)
 
-    # visualized validation audio
-    predictions, losses, mel, features = model.run_on_batch(batch_visualize, None, VAT)
-    state_group_post = features[0].squeeze(1)
-    tech_note_post = features[1].squeeze(1)
-    state_feature = features[2].squeeze(1)
-    group_feature = features[3].squeeze(1)
-    note_feature = features[4].squeeze(1)
-    tech_feature = features[5].squeeze(1)
-    # get transcriptions and confusion matrix
-    transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions) 
-    loss = sum(losses.values())
     # Show the original transcription and spectrograms
-    if ep==1:
-        # spectrogram
-        plot_spec_and_post(writer, ep, mel, 'images/Original')
-        # plot state_group_post
-        plot_spec_and_post(writer, ep, state_group_post, 'images/state_group_post')
-        # plot tech_note_post
-        plot_spec_and_post(writer, ep, tech_note_post, 'images/tech_note_post')
-
-        plot_spec_and_post(writer, ep, state_feature, 'images/state_feature')
-        plot_spec_and_post(writer, ep, group_feature, 'images/group_feature')
-        plot_spec_and_post(writer, ep, note_feature, 'images/note_feature')
-        plot_spec_and_post(writer, ep, tech_feature, 'images/tech_feature')
-        # when the spectrogram adds adversarial direction
-        # fig, axs = plt.subplots(2, 2, figsize=(24,4))
-        # axs = axs.flat
-        # if predictions['r_adv'] is not None: 
-        #     fig, axs = plt.subplots(2, 2, figsize=(24,8))
-        #     axs = axs.flat
-        #     for idx, i in enumerate(mel.cpu().detach().numpy()):
-        #         x_adv = i.transpose()+predictions['r_adv'][idx][0].t().cpu().numpy()
-        #         axs[idx].imshow(x_adv, vmax=1, vmin=0)
-        #         axs[idx].axis('off')
-        #     fig.tight_layout()
-        #     writer.add_figure('images/Spec_adv', fig , ep)
-
-    if ep%logging_freq == 0:
+    if ep==1 or ep%logging_freq == 0:
+        # visualized validation audio
+        predictions, _, mel, features = model.run_on_batch(batch_visualize, None, VAT)
+        #loss = sum(losses.values())
+        state_group_post = features[0].squeeze(1)
+        tech_note_post = features[1].squeeze(1)
+        state_feature = features[2].squeeze(1)
+        group_feature = features[3].squeeze(1)
+        note_feature = features[4].squeeze(1)
+        tech_feature = features[5].squeeze(1)
+        # get transcriptions and confusion matrix
+        transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep)
         # plot state_group_post
         plot_spec_and_post(writer, ep, state_group_post, 'images/state_group_post')
         # plot tech_note_post

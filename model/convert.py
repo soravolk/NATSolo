@@ -1,25 +1,29 @@
 from sklearn.metrics import confusion_matrix
 from mido import Message, MidiFile, MidiTrack
-from mir_eval.util import hz_to_midi
+import os
+from mir_eval.util import hz_to_midi, midi_to_hz
 from collections import defaultdict
 import numpy as np
 import torch
 from .constants import *
 
-def get_transcription_and_cmx(labels, preds):
+def get_transcription_and_cmx(labels, preds, ep):
     transcriptions = defaultdict(list)
 
-    for (label, tech, note, note_state, tech_group) in zip(labels, preds['tech'], preds['note'], preds['note_state'], preds['tech_group']):
+    for i, (label, tech, note, note_state) in enumerate(zip(labels, preds['tech'], preds['note'], preds['note_state'])):
         # get label from one hot vectors
         state_label = label[:,:3].argmax(axis=1)
-        group_label = label[:,3:7].argmax(axis=1)
         note_label = label[:,7:57].argmax(axis=1)
         tech_label = label[:,57:].argmax(axis=1)    
+        
         tech_ref, tech_i_ref = extract_technique(tech_label) # (tech_label, state_label)
         tech_est, tech_i_est = extract_technique(tech.squeeze(0))
-        note_ref, note_i_ref = extract_notes(note_label, state_label, group_label)
-        note_est, note_i_est = extract_notes(note.squeeze(0), note_state.squeeze(0), tech_group.squeeze(0))
 
+        midi_path = os.path.join('midi', f'song{i}_ep{ep}.midi')
+        gt_midi_path = os.path.join('midi', f'gt_song{i}.midi')
+        note_ref, note_i_ref = extract_notes(note_label, state_label, midi=True, path=gt_midi_path)
+        note_est, note_i_est = extract_notes(note.squeeze(0), note_state.squeeze(0), midi=True, path=midi_path)
+        
         transcriptions['tech_gt'].append(tech_ref)
         transcriptions['tech_interval_gt'].append(tech_i_ref)
         transcriptions['note_gt'].append(note_ref + LOGIC_MIDI)
@@ -35,6 +39,24 @@ def get_transcription_and_cmx(labels, preds):
     cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), tech_pred.cpu().numpy())
 
     return transcriptions, cm_dict
+
+def get_prec_recall(cm):
+    # recall
+    cm_recall = []
+    for i, row in enumerate(cm):
+        total = row.sum()
+        for j in range(cm.shape[0]):
+            cm_recall.append(row[j] / total if (row[j] != 0 or total != 0) else 0)
+    cm_recall = np.reshape(cm_recall, cm.shape)
+
+    # precision
+    cm_precision = []
+    for j, col in enumerate(cm.T):
+        total = col.sum()
+        for i in range(cm.shape[0]):
+            cm_precision.append(col[i] / total if (col[j] != 0 or total != 0) else 0)
+    cm_precision = np.reshape(cm_precision, cm.shape).T
+    return cm_recall, cm_precision
 
 def get_confusion_matrix(correct_labels, predict_labels):
     """
@@ -54,21 +76,7 @@ def get_confusion_matrix(correct_labels, predict_labels):
 
     cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
 
-    # recall
-    cm_recall = []
-    for i, row in enumerate(cm):
-        total = row.sum()
-        for j in range(cm.shape[0]):
-            cm_recall.append(row[j] / total if (row[j] != 0 or total != 0) else 0)
-    cm_recall = np.reshape(cm_recall, cm.shape)
-
-    # precision
-    cm_precision = []
-    for j, col in enumerate(cm.T):
-        total = col.sum()
-        for i in range(cm.shape[0]):
-            cm_precision.append(col[i] / total if (col[j] != 0 or total != 0) else 0)
-    cm_precision = np.reshape(cm_precision, cm.shape).T
+    cm_recall, cm_precision = get_prec_recall(cm)
 
     cm_dict = {
         'cm': cm,
@@ -189,7 +197,7 @@ def techniques_to_frames(techniques, intervals, shape):
     tehcniques = [roll[t, :].nonzero()[0] for t in time]
     return time, tehcniques
 
-def extract_notes(notes, states=None, groups=None, scale2time=True):
+def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, path=None):
     """
     Finds the note timings based on the onsets and frames information
     Parameters
@@ -247,10 +255,17 @@ def extract_notes(notes, states=None, groups=None, scale2time=True):
                     intervals.append([start, i - 0.1])
 
     scaling = HOP_LENGTH / SAMPLE_RATE
-    if scale2time:
+    if scale2time and midi:
         intervals = (np.array(intervals) * scaling).reshape(-1, 2)
+        save_midi(path, np.array(pitches), intervals)
+        pitches = np.array(pitches)
+    elif scale2time:
+        intervals = (np.array(intervals) * scaling).reshape(-1, 2)
+        # converting midi number to frequency
+        pitches = np.array([midi_to_hz(MIN_MIDI + midi) for midi in pitches])
 
-    return np.array(pitches), intervals
+    
+    return pitches, intervals
 
 def save_midi(path, pitches, intervals):
     """
