@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from .constants import *
 
-def get_transcription_and_cmx(labels, preds, ep):
+def get_transcription_and_cmx(labels, preds, ep, technique_dict):
     transcriptions = defaultdict(list)
 
     for i, (label, tech, note, note_state) in enumerate(zip(labels, preds['tech'], preds['note'], preds['note_state'])):
@@ -36,7 +36,7 @@ def get_transcription_and_cmx(labels, preds, ep):
     # get macro metrics
     tech_label = labels[:,:,57:].argmax(axis=2).flatten()
     tech_pred = preds['tech'].flatten()
-    cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), tech_pred.cpu().numpy())
+    cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), tech_pred.cpu().numpy(), list(technique_dict.keys()))
 
     return transcriptions, cm_dict
 
@@ -58,7 +58,7 @@ def get_prec_recall(cm):
     cm_precision = np.reshape(cm_precision, cm.shape).T
     return cm_recall, cm_precision
 
-def get_confusion_matrix(correct_labels, predict_labels):
+def get_confusion_matrix(correct_labels, predict_labels, labels):
     """
     Generate confusion matrix, recall and precision
     Parameters
@@ -71,15 +71,18 @@ def get_confusion_matrix(correct_labels, predict_labels):
     cm_recall:
     cm_precision:
     """
-    # ignore 'no tech'
-    labels = [1, 2, 3, 4, 5, 6, 7, 8]
-
     cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
+    cm_new = []
+    for i in range(len(cm)):
+        if i == 0:
+            continue
+        cm_new.append(cm[i][1:])
+    cm_new = np.reshape(cm_new, (len(labels)-1, len(labels)-1))
 
-    cm_recall, cm_precision = get_prec_recall(cm)
+    cm_recall, cm_precision = get_prec_recall(cm_new)
 
     cm_dict = {
-        'cm': cm,
+        'cm': cm_new,
         'Precision': cm_precision,
         'Recall': cm_recall,
     }

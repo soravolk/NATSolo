@@ -71,16 +71,27 @@ def config():
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
     logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_DetachOnlyByNotes'
 
-def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
+def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                     VAT, VAT_start, reconstruction, tech_weights=None):
+    technique_dict = {
+        0: 'no tech',
+        1: 'slide',
+        2: 'bend',
+        3: 'trill',
+        4: 'mute',
+        5: 'pull',
+        6: 'harmonic',
+        7: 'hammer',
+        8: 'tap'
+    }
     # log various result from the validation audio
     model.eval()
 
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics = evaluate_prediction(valid_set, model, ep=ep, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics, _ = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction, tech_weights=tech_weights)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -88,18 +99,13 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
                     print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')
                     if 'accuracy' in name or 'precision' in name or 'recall' in name or 'f1' in name:
                         writer.add_scalar(key, np.mean(values), global_step=ep)
+        # for key, value in {**val_loss}.items():
+        #     writer.add_scalar(key, value.item(), global_step=ep) 
 
-        # test on labelled training set
-        model.eval()
-        test_losses = eval_model(model, ep, supervised_loader, VAT_start, VAT, tech_weights)
-        for key, values in test_losses.items():
-            if key.startswith('loss/'):
-                writer.add_scalar(key, np.mean(values), global_step=ep)
-
-    # Show the original transcription and spectrograms
-    if ep==1 or ep%logging_freq == 0:
         # visualized validation audio
         predictions, _, mel, features = model.run_on_batch(batch_visualize, None, VAT)
+
+        # Show the original transcription and spectrograms
         #loss = sum(losses.values())
         state_group_post = features[0].squeeze(1)
         tech_note_post = features[1].squeeze(1)
@@ -108,7 +114,7 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         note_feature = features[4].squeeze(1)
         tech_feature = features[5].squeeze(1)
         # get transcriptions and confusion matrix
-        transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep)
+        transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict)
         # plot state_group_post
         plot_spec_and_post(writer, ep, state_group_post, 'images/state_group_post')
         # plot tech_note_post
@@ -145,6 +151,27 @@ def tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
         #     fig.tight_layout()
         #     writer.add_figure('images/Spec_adv', fig , ep)
 
+        model.eval()
+        test_losses = eval_model(model, ep, val_loader, VAT_start, VAT, tech_weights)
+        for key, values in test_losses.items():
+            if key.startswith('loss/'):
+                writer.add_scalar(key, np.mean(values), global_step=ep)
+        # model.eval()
+        # test_losses = eval_model(model, ep, supervised_loader, VAT_start, VAT, tech_weights)
+        # for key, values in test_losses.items():
+        #     if key.startswith('loss/'):
+        #         writer.add_scalar(key, np.mean(values), global_step=ep)
+    if ep%(2 * logging_freq) == 0:
+        # test on training set
+        with torch.no_grad():
+            mertics, _ = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction, tech_weights=tech_weights)
+            for key, values in mertics.items():
+                if key.startswith('metric/'):
+                    _, _, name = key.split('/')
+                    if name in ['accuracy', 'precision', 'recall', 'f1']:
+                        writer.add_scalar(f'{key}_train', np.mean(values), global_step=ep)
+
+
 def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
     model.train()
     batch_size = l_loader.batch_size
@@ -152,6 +179,8 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
     l_loader = cycle(l_loader)
     if ul_loader:
         ul_loader = cycle(ul_loader)
+    
+    metrics = defaultdict(list)
     for i in tqdm(range(iteration)):
         optimizer.zero_grad()
         batch_l = next(l_loader)
@@ -161,6 +190,9 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
         else:
             batch_ul = next(ul_loader)
             predictions, losses = model.run_on_batch(batch_l, batch_ul, VAT)
+
+        for key, loss in losses.items():
+            metrics[key].append(loss.item())
 
         loss = 0
         # tweak the loss
@@ -187,7 +219,7 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
                 , end='\r') 
     print(' '*100, end = '\r')          
     print(f'Train Epoch: {ep}\tLoss: {total_loss/iteration:.6f}')
-    return predictions, losses, optimizer
+    return predictions, losses, metrics, optimizer
 
 @ex.automain
 def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size, val_batch_size,
@@ -196,7 +228,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
           reconstruction): 
     print_config(ex.current_run)
     # flac for 16K audio
-    supervised_set, unsupervised_set, valid_set = prepare_VAT_dataset(
+    train_set, unsupervised_set, valid_set = prepare_VAT_dataset(
                                                                           sequence_length=sequence_length,
                                                                           validation_length=sequence_length,
                                                                           refresh=refresh,
@@ -204,7 +236,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
                                                                           audio_type='flac')  
     if VAT:
         unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
-#     supervised_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
+#     train_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight of tech label for BCE loss
@@ -212,11 +244,11 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     # tech_weights = compute_dataset_weight(device)
     tech_weights = None
 
-    print("supervised_set: ", len(supervised_set))
+    print("train_set: ", len(train_set))
     print("unsupervised_set: ", len(unsupervised_set))
     print("valid_set: ", len(valid_set))
     # print("test_set: ", len(test_set))
-    supervised_loader = DataLoader(supervised_set, train_batch_size, shuffle=True, drop_last=True)
+    supervised_loader = DataLoader(train_set, train_batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(valid_set, val_batch_size, shuffle=False, drop_last=True)
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
 
@@ -240,10 +272,10 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 
     for ep in tqdm(range(1, epoches+1)):
         if VAT==True:
-            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
+            predictions, losses, train_losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
                                                              optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)
         else:
-            predictions, losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
+            predictions, losses, train_losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
                                                              optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)            
         loss = sum(losses.values())
 
@@ -251,11 +283,11 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         if ep == 1:
             writer = SummaryWriter(logdir) # create tensorboard logger     
         if ep < VAT_start or VAT == False:
-            tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
+            tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                             False, VAT_start, reconstruction, tech_weights)
         else:
-            tensorboard_log(batch_visualize, model, valid_set, supervised_loader,
+            tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                             True, VAT_start, reconstruction, tech_weights)            
 
@@ -264,8 +296,12 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         #     torch.save(model.state_dict(), os.path.join('checkpoint', f'model-{ep}.pt'))
         #     torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
         
-        for key, value in {**losses}.items():
-            writer.add_scalar(key, value.item(), global_step=ep) 
+        for key, values in train_losses.items():
+            if key.startswith('loss/'):
+                writer.add_scalar(key, np.mean(values), global_step=ep)
+
+        # for key, value in {**losses}.items():
+        #     writer.add_scalar(key, value.item(), global_step=ep) 
 
     """
     # Evaluating model performance on the full MAPS songs in the test split     

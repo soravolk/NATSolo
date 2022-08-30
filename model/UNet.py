@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 import numpy as np
+import librosa
 from nnAudio import features
 from .constants import *
 from .utils import Normalization
@@ -392,6 +393,19 @@ class UNet(nn.Module):
         self.transcriber = Spec2Roll(ds_ksize, ds_stride)
         self.weights = weights
 
+    def get_spec(self, audio, n_fft):
+        audio = audio.cpu().numpy()
+        mel = librosa.feature.melspectrogram(
+            audio,
+            sr=SAMPLE_RATE,
+            n_fft=n_fft,
+            hop_length=HOP_LENGTH,
+            fmin=MEL_FMIN,
+            fmax=MEL_FMAX,
+            n_mels=N_BINS).astype(np.float32)
+        
+        return torch.from_numpy(mel).cuda()
+
     def forward(self, x):
         # U-net 1
         state, tech_note, features = self.transcriber(x, self.training)
@@ -401,7 +415,7 @@ class UNet(nn.Module):
         device = self.device
         audio = batch['audio']
 
-        gt_bin = batch['label'].shape[-2] # ground truth bin size
+        #gt_bin = batch['label'].shape[-2] # ground truth bin size
         if batch['label'].dim() == 2:
             label = batch['label'].unsqueeze(0)
         else:
@@ -458,8 +472,11 @@ class UNet(nn.Module):
                 audio = audio[:, :, 0]
 
         # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
-        spec_1 = self.spectrogram_1(audio) # x = torch.rand(8, 229, 640)
-        spec_2 = self.spectrogram_2(audio) # x = torch.rand(8, 229, 640)
+        # spec_1 = self.get_spec(audio, 512) # x = torch.rand(8, 229, 640)
+        # spec_2 = self.get_spec(audio, 768)
+        # spec_3 = self.get_spec(audio, 1024)
+        spec_1 = self.spectrogram_1(audio) # x = torch.rand(8,229, 640)
+        spec_2 = self.spectrogram_2(audio)
         spec_3 = self.spectrogram_3(audio)
         # log compression
         if self.log:
@@ -475,7 +492,6 @@ class UNet(nn.Module):
         spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
         spec_3 = spec_3.transpose(-1,-2).unsqueeze(1)
         spec = torch.cat((spec_1, spec_2, spec_3), 1)
-
         # do VAT for labelled audio
         if VAT:
             lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
@@ -488,8 +504,6 @@ class UNet(nn.Module):
         
         state_pred, tech_note_pred, features = self(spec)
         # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
-        state_pred = state_pred[:, :gt_bin, :]
-        tech_note_pred = tech_note_pred[:, :gt_bin, :]
 
         if self.training:
             predictions = {
@@ -511,10 +525,10 @@ class UNet(nn.Module):
         else:
             # testing
             predictions = {
-                    'note_state': state_pred[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, gt_bin),
-                    'tech_group': state_pred[:,:,3:].reshape(-1, 4).argmax(axis=1).reshape(-1, gt_bin),
-                    'note': tech_note_pred[:,:,:50].reshape(-1, 50).argmax(axis=1).reshape(-1, gt_bin),
-                    'tech': tech_note_pred[:,:,50:].reshape(-1, 9).argmax(axis=1).reshape(-1, gt_bin),
+                    'note_state': state_pred[:,:,:3].reshape(-1, 3).argmax(axis=1).reshape(-1, spec.shape[-2]),
+                    'tech_group': state_pred[:,:,3:].reshape(-1, 4).argmax(axis=1).reshape(-1, spec.shape[-2]),
+                    'note': tech_note_pred[:,:,:50].reshape(-1, 50).argmax(axis=1).reshape(-1, spec.shape[-2]),
+                    'tech': tech_note_pred[:,:,50:].reshape(-1, 9).argmax(axis=1).reshape(-1, spec.shape[-2]),
                     'r_adv': r_adv,
                     }                       
             losses = {

@@ -136,7 +136,7 @@ class AudioDataset(Dataset):
         all_note = np.loadtxt(note_tsv_path, delimiter='\t', skiprows=1)
         # processing tech labels
         for start, end, technique in all_tech:
-            if technique == 1: # normal
+            if technique == 0: # normal
                 continue
 
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
@@ -144,17 +144,16 @@ class AudioDataset(Dataset):
 
             right = int((end * SAMPLE_RATE) // HOP_LENGTH)
             right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
-            # print('=============================left: ', left)
-            # print('=============================right: ', right)
+            
             # silent_label[left - 2: right + 2] = 1 # not silent
-            if technique == 2 or technique == 3 or technique == 4: # slide, bend, trill
+            if technique in [1, 2, 3]: # slide, bend, trill
                 tech_group_label[left:right] = 1
-            elif technique == 6 or technique == 8 or technique == 9: # pull, hammer, tap
+            elif technique in [5, 7, 8]: # pull, hammer, tap
                 tech_group_label[left:right] = 2
-            elif technique == 5 or technique == 7: # harmonic, mute
+            elif technique in [4, 6]: # harmonic, mute
                 tech_group_label[left:right] = 3
 
-            tech_label[left:right] = technique - 1
+            tech_label[left:right] = technique
 
         # processing note labels
         for start, end, note in all_note:

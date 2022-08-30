@@ -168,7 +168,6 @@ def plot_confusion_matrix(cm, writer, ep, title='Prediction', tensor_name = 'MyF
         - Currently, some of the ticks dont line up due to rotations.
     '''
     technique_dict = {
-        0: 'no tech',
         1: 'slide',
         2: 'bend',
         3: 'trill',
@@ -178,7 +177,7 @@ def plot_confusion_matrix(cm, writer, ep, title='Prediction', tensor_name = 'MyF
         7: 'hammer',
         8: 'tap'
     }
-    labels = [1, 2, 3, 4, 5, 6, 7, 8]
+
     np.set_printoptions(precision=2)
     fig, ax = plt.subplots(figsize=(5, 5), dpi=180, facecolor='w', edgecolor='k')
 
@@ -186,7 +185,7 @@ def plot_confusion_matrix(cm, writer, ep, title='Prediction', tensor_name = 'MyF
     ax.set_title(title)
     fig.colorbar(im)
 
-    classes = [technique_dict[x] for x in labels]
+    classes = list(technique_dict.values())
 
     tick_marks = np.arange(len(classes))
 

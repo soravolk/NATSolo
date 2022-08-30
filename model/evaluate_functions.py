@@ -14,28 +14,23 @@ from .utils import save_pianoroll
 
 eps = sys.float_info.epsilon    
 
-def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, tech_weights=None):
-    technique_dict = {
-        0: 'no tech',
-        1: 'slide',
-        2: 'bend',
-        3: 'trill',
-        4: 'mute',
-        5: 'pull',
-        6: 'harmonic',
-        7: 'hammer',
-        8: 'tap'
-    }
-
+def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconstruction=True, tech_weights=None):
     metrics = defaultdict(list) # a safe dict
     macro_cm = None
     macro_note_pred = []
     macro_state_pred = []
     macro_note_label = []
     macro_state_label = []
+    val_loss = None
     for val_data in tqdm(data):
         pred, losses, _, _ = model.run_on_batch(val_data, None, False)
-        
+        if val_loss is None:
+            val_loss = defaultdict(list)
+            for key, value in {**losses}.items():
+                val_loss[key] = value
+        else:
+            for key, value in {**losses}.items():
+                val_loss[key] += value             
         # get label from one hot vector
         state_label = val_data['label'][:,:3].argmax(axis=1)
         group_label = val_data['label'][:,3:7].argmax(axis=1)
@@ -52,7 +47,7 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
 
         ############ evaluate techniques ############
         # get the confusion matrix
-        cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].squeeze(0).cpu().numpy())
+        cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].squeeze(0).cpu().numpy(), list(technique_dict.keys()))
         # sum up macro confusion matrix
         if macro_cm is None:
             macro_cm = cm_dict['cm']
@@ -60,8 +55,10 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
             macro_cm += cm_dict['cm']
         # get the recall and precision of techniques
         for key, value in technique_dict.items():
-            p = cm_dict['Precision'][key - 1][key - 1]
-            r = cm_dict['Recall'][key - 1][key - 1]
+            if key == 0:
+                continue
+            p = cm_dict['Precision'][key-1][key-1]
+            r = cm_dict['Recall'][key-1][key-1]
             f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
             metrics[f'metric/{value}/precision'].append(p)
             metrics[f'metric/{value}/recall'].append(r)
@@ -111,8 +108,10 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
     ############ get the macro recall and precision of technique s############ 
     macro_precision, macro_recall = get_prec_recall(macro_cm)
     for key, value in technique_dict.items():
-        p = macro_precision[key - 1][key - 1]
-        r = macro_recall[key - 1][key - 1]
+        if key == 0:
+            continue
+        p = macro_precision[key-1][key-1]
+        r = macro_recall[key-1][key-1]
         f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
         metrics[f'metric/{value}/macro_precision'].append(p)
         metrics[f'metric/{value}/macro_recall'].append(r)
@@ -128,7 +127,7 @@ def evaluate_prediction(data, model, ep, save_path=None, reconstruction=True, te
     metrics['metric/note/precision_macro'].append(p)
     metrics['metric/note/recall_macro'].append(r)
     metrics['metric/note/f1_macro'].append(f)
-    return metrics
+    return metrics, val_loss
 
 def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):
     model.eval()
