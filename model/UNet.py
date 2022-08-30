@@ -213,12 +213,19 @@ class Spec2Roll(nn.Module):
         tech_note_post = self.Unet2_decoder(enc,s,c)
 
         state_feature = self.linear_state(state_group_post)
+        state_feature = self.dropout_layer(state_feature)
         state = torch.sigmoid(state_feature)
+
         group_feature = self.linear_group(state_group_post)
+        group_feature = self.dropout_layer(group_feature)
         group = torch.sigmoid(group_feature)
+
         note_feature = self.linear_note(tech_note_post)
+        note_feature = self.dropout_layer(note_feature)
         note = torch.sigmoid(note_feature)
+        
         tech_feature = self.linear_tech(tech_note_post)
+        tech_feature = self.dropout_layer(tech_feature)
         tech = torch.sigmoid(tech_feature)
 
         state_group = torch.cat((state, group), -1)
