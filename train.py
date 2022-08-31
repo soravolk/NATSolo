@@ -69,7 +69,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_DropoutLinearLayer'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_ModifyUnet'
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -253,7 +253,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     batch_visualize = next(iter(val_loader)) # Getting one fixed batch for visualization   
 
     # model setting
-    ds_ksize, ds_stride = (2,2),(2,2)     
+    ds_ksize, ds_stride = 2, 2   
     model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
                     mode=mode, spec=spec, device=device, XI=XI, eps=eps, weights=tech_weights)
     model.to(device)
