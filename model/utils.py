@@ -128,7 +128,7 @@ def plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_int
         # note transcription
         ax[1].tick_params(labelbottom=False)
         ax[1].set_ylabel('midi note numbers')
-        ax[1].set_xlim([0, 163840/SAMPLE_RATE])
+        ax[1].set_xlim([0, 6])
         for j, t in enumerate(x):
             x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
             y_val = np.full(len(x_val), y[j])
@@ -137,7 +137,7 @@ def plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_int
         # techique transcription
         ax[2].set_xlabel('time (t)')
         ax[2].set_ylabel('technique')
-        ax[2].set_xlim([0, 163840/SAMPLE_RATE])
+        ax[2].set_xlim([0, 6])
         for j, t in enumerate(x_tech):
             x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
             # y_val = np.full(len(x_val), y_tech[j])

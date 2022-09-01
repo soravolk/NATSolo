@@ -22,7 +22,7 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
         midi_path = os.path.join('midi', f'song{i}_ep{ep}.midi')
         gt_midi_path = os.path.join('midi', f'gt_song{i}.midi')
         note_ref, note_i_ref = extract_notes(note_label, state_label, midi=True, path=gt_midi_path)
-        note_est, note_i_est = extract_notes(note.squeeze(0), note_state.squeeze(0), midi=True, path=midi_path)
+        note_est, note_i_est = extract_notes(note, note_state, midi=True, path=midi_path)
         
         transcriptions['tech_gt'].append(tech_ref)
         transcriptions['tech_interval_gt'].append(tech_i_ref)
@@ -242,6 +242,7 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
         states = states.to(torch.int8).cpu()
         # a valid note must come with the onset state
         onset = False
+        total = len(notes)
         for i, (note, state) in enumerate(zip(notes, states)):
             # assume one onset does not follow another onset
             if onset == False and state == 1:
@@ -251,7 +252,12 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
 
             if onset:
                 if state != 0:
-                    continue
+                    if (i + 1) < total and states[i] == 2 and states[i + 1] == 1:
+                        onset = False
+                        pitches.append(onset_note)
+                        intervals.append([start, i - 0.1])
+                    else:
+                        continue
                 else:
                     onset = False
                     pitches.append(onset_note)

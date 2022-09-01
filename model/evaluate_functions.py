@@ -23,14 +23,14 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
     macro_state_label = []
     val_loss = None
     for val_data in tqdm(data):
-        pred, losses, _, _ = model.run_on_batch(val_data, None, False)
-        if val_loss is None:
-            val_loss = defaultdict(list)
-            for key, value in {**losses}.items():
-                val_loss[key] = value
-        else:
-            for key, value in {**losses}.items():
-                val_loss[key] += value             
+        pred, losses, _, _, _ = model.run_on_batch(val_data, None, False)
+        # if val_loss is None:
+        #     val_loss = defaultdict(list)
+        #     for key, value in {**losses}.items():
+        #         val_loss[key] = value
+        # else:
+        #     for key, value in {**losses}.items():
+        #         val_loss[key] += value             
         # get label from one hot vector
         state_label = val_data['label'][:,:3].argmax(axis=1)
         group_label = val_data['label'][:,3:7].argmax(axis=1)
@@ -68,6 +68,7 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
         # groundtruth: val_data['technique'].shape [232]
 
         pred['note'].squeeze_(0)
+        #print(pred['note'])
         pred['note_state'].squeeze_(0)
         macro_note_pred.extend(pred['note'])
         macro_state_pred.extend(pred['note_state'])
@@ -127,7 +128,7 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
     metrics['metric/note/precision_macro'].append(p)
     metrics['metric/note/recall_macro'].append(r)
     metrics['metric/note/f1_macro'].append(f)
-    return metrics, val_loss
+    return metrics#, val_loss
 
 def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):
     model.eval()
@@ -136,9 +137,9 @@ def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):
     i = 0 
     for batch in loader:
         if ep < VAT_start or VAT==False:
-            predictions, losses, _, _ = model.run_on_batch(batch, None, False)
+            predictions, losses, _, _, _ = model.run_on_batch(batch, None, False)
         else:
-            predictions, losses, _, _ = model.run_on_batch(batch, None, True)
+            predictions, losses, _, _, _ = model.run_on_batch(batch, None, True)
 
         for key, loss in losses.items():
             metrics[key].append(loss.item())

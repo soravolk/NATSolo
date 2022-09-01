@@ -54,7 +54,7 @@ def config():
     batch_size = 8
     train_batch_size = 8
     val_batch_size = 3
-    sequence_length = 163840 # 327680
+    sequence_length = 96000 #163840 # 327680
     if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
         batch_size //= 2
         sequence_length //= 2
@@ -69,7 +69,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_ModifyUnet'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_NewStructureOldUnet'
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -91,7 +91,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics, _ = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction, tech_weights=tech_weights)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -103,27 +103,28 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         #     writer.add_scalar(key, value.item(), global_step=ep) 
 
         # visualized validation audio
-        predictions, _, mel, features = model.run_on_batch(batch_visualize, None, VAT)
+        predictions, _, mel, post, latent = model.run_on_batch(batch_visualize, None, VAT)
 
         # Show the original transcription and spectrograms
         #loss = sum(losses.values())
-        state_group_post = features[0].squeeze(1)
-        tech_note_post = features[1].squeeze(1)
-        state_feature = features[2].squeeze(1)
-        group_feature = features[3].squeeze(1)
-        note_feature = features[4].squeeze(1)
-        tech_feature = features[5].squeeze(1)
+        state_post = post[0]
+        group_post = post[1]
+        note_post_1 = post[2]
+        note_post = post[3]
+        tech_post = post[4]
+        state_latent = latent[0][:,1,:,:].squeeze(1)
+        group_latent = latent[1][:,1,:,:].squeeze(1)
+
         # get transcriptions and confusion matrix
         transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict)
-        # plot state_group_post
-        plot_spec_and_post(writer, ep, state_group_post, 'images/state_group_post')
-        # plot tech_note_post
-        plot_spec_and_post(writer, ep, tech_note_post, 'images/tech_note_post')
-
-        plot_spec_and_post(writer, ep, state_feature, 'images/state_feature')
-        plot_spec_and_post(writer, ep, group_feature, 'images/group_feature')
-        plot_spec_and_post(writer, ep, note_feature, 'images/note_feature')
-        plot_spec_and_post(writer, ep, tech_feature, 'images/tech_feature')
+        # plot features
+        plot_spec_and_post(writer, ep, state_post, 'images/state_post')
+        plot_spec_and_post(writer, ep, group_post, 'images/group_post')
+        plot_spec_and_post(writer, ep, note_post_1, 'images/note_post_1')
+        plot_spec_and_post(writer, ep, note_post, 'images/note_post')
+        plot_spec_and_post(writer, ep, tech_post, 'images/tech_post')
+        plot_spec_and_post(writer, ep, state_latent, 'images/state_latent')
+        plot_spec_and_post(writer, ep, group_latent, 'images/group_latent')
         # Show the transcription result in validation period
         print('Show the transcription result')
         plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'])
@@ -164,7 +165,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
     if ep%(2 * logging_freq) == 0:
         # test on training set
         with torch.no_grad():
-            mertics, _ = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction, tech_weights=tech_weights)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, _, name = key.split('/')
