@@ -103,8 +103,9 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         #     writer.add_scalar(key, value.item(), global_step=ep) 
 
         # visualized validation audio
-        predictions, _, mel, post, latent = model.run_on_batch(batch_visualize, None, VAT)
-
+        predictions, _, spec, post, latent = model.run_on_batch(batch_visualize, None, VAT)
+        mel = spec[0]
+        flux = spec[1]
         # Show the original transcription and spectrograms
         #loss = sum(losses.values())
         state_post = post[0]
@@ -125,6 +126,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         plot_spec_and_post(writer, ep, tech_post, 'images/tech_post')
         plot_spec_and_post(writer, ep, state_latent, 'images/state_latent')
         plot_spec_and_post(writer, ep, group_latent, 'images/group_latent')
+        plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
         # Show the transcription result in validation period
         print('Show the transcription result')
         plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'])

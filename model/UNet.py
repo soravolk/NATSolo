@@ -216,7 +216,7 @@ class Decoder(nn.Module):
 class Spec2Roll(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
-        self.state_encoder = Encoder(3, ds_ksize, ds_stride)
+        self.state_encoder = Encoder(4, ds_ksize, ds_stride)
         self.state_decoder = Decoder(ds_ksize, ds_stride, 1, False)
         self.note_decoder = Decoder(ds_ksize, ds_stride, 1)
         self.group_encoder = Encoder(4, ds_ksize, ds_stride)
@@ -236,7 +236,7 @@ class Spec2Roll(nn.Module):
         state_post = self.state_decoder(state_enc,s) # do not pass c -> no skip
         note_post_1 = self.note_decoder(state_enc,s,c)
         # group tech note U-net
-        x = torch.cat((note_post_1, x), 1)
+        x = torch.cat((note_post_1, x[:,:-1,:,:]), 1)
         group_enc,s,c = self.group_encoder(x)
         group_post = self.group_decoder(group_enc,s)
         note_tech_post = self.note_tech_decoder(group_enc,s,c)
@@ -245,11 +245,6 @@ class Spec2Roll(nn.Module):
         group_post, a = self.group_attention(group_post.squeeze(1))
         note_post, a = self.note_attention(note_tech_post[:,0,:,:].squeeze(1))
         tech_post, a = self.tech_attention(note_tech_post[:,1,:,:].squeeze(1))
-
-        state = torch.sigmoid(state_post)
-        group = torch.sigmoid(group_post)
-        note = torch.sigmoid(note_post)
-        tech = torch.sigmoid(tech_post)
 
         #################### attention #########################
         # x = torch.cat((state_group, note, tech), -1)
@@ -296,6 +291,10 @@ class Spec2Roll(nn.Module):
         #     x[idx[0]][idx[1]][57:] = x[idx[0]][idx[1]][57:].detach()
         '''
         #################### detach #########################
+        state = torch.sigmoid(state_post)
+        group = torch.sigmoid(group_post)
+        note = torch.sigmoid(note_post)
+        tech = torch.sigmoid(tech_post)
 
         if training:
             return (state, group, note, tech), None, None
@@ -526,7 +525,10 @@ class UNet(nn.Module):
         spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
         spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
         spec_3 = spec_3.transpose(-1,-2).unsqueeze(1)
-        spec = torch.cat((spec_1, spec_2, spec_3), 1)
+        ############ spectral flux ############
+        spec_flux = spec_2 - torch.cat((spec_2[:,:,1:,:], torch.zeros(spec_2[:,:,1,:].unsqueeze(2).shape).cuda()), 2)
+        ############ spectral flux ############
+        spec = torch.cat((spec_1, spec_2, spec_3, spec_flux), 1)
         # do VAT for labelled audio
         if VAT:
             lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
@@ -577,7 +579,7 @@ class UNet(nn.Module):
                     'loss/test_LDS_l': lds_l,
                     'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                     }
-            return predictions, losses, spec[:,1,:,:].squeeze(1), post, latent
+            return predictions, losses, (spec[:,1,:,:].squeeze(1), spec[:,3,:,:].squeeze(1)), post, latent
 
     def load_my_state_dict(self, state_dict):
         """Useful when loading part of the weights. From https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2"""
