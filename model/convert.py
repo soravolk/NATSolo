@@ -7,6 +7,16 @@ import numpy as np
 import torch
 from .constants import *
 
+def state2time(states):
+    states = states.to(torch.int8).cpu()
+    scaling = HOP_LENGTH / SAMPLE_RATE
+    onset_time = []
+    for i, s in enumerate(states):
+        if s == 1:
+            if i + 1 < len(states) and states[i + 1] != 1:
+                onset_time.append(i)
+    return np.array(onset_time) * scaling
+
 def get_transcription_and_cmx(labels, preds, ep, technique_dict):
     transcriptions = defaultdict(list)
 
@@ -21,17 +31,19 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
 
         midi_path = os.path.join('midi', f'song{i}_ep{ep}.midi')
         gt_midi_path = os.path.join('midi', f'gt_song{i}.midi')
-        note_ref, note_i_ref = extract_notes(note_label, state_label, midi=True, path=gt_midi_path)
-        note_est, note_i_est = extract_notes(note, note_state, midi=True, path=midi_path)
-        
+        note_ref, note_i_ref = extract_notes(note_label, midi=True, path=gt_midi_path)
+        note_est, note_i_est = extract_notes(note, midi=True, path=midi_path)
+
         transcriptions['tech_gt'].append(tech_ref)
         transcriptions['tech_interval_gt'].append(tech_i_ref)
         transcriptions['note_gt'].append(note_ref + LOGIC_MIDI)
         transcriptions['note_interval_gt'].append(note_i_ref)
+        transcriptions['state_gt'].append(state2time(state_label))
         transcriptions['tech'].append(tech_est)
         transcriptions['tech_interval'].append(tech_i_est)
         transcriptions['note'].append(note_est + LOGIC_MIDI)
         transcriptions['note_interval'].append(note_i_est)
+        transcriptions['state'].append(state2time(note_state))
     
     # get macro metrics
     tech_label = labels[:,:,57:].argmax(axis=2).flatten()

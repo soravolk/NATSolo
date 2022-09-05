@@ -14,7 +14,7 @@ from .utils import save_pianoroll
 
 eps = sys.float_info.epsilon    
 
-def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconstruction=True, tech_weights=None):
+def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconstruction=True):
     metrics = defaultdict(list) # a safe dict
     macro_cm = None
     macro_note_pred = []
@@ -76,8 +76,8 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
         tech_ref, tech_i_ref = extract_technique(tech_label, scale2time=True) # (tech_label, state_label)
         tech_est, tech_i_est = extract_technique(pred['tech'].squeeze(0), scale2time=True) # (pred['tech'], pred['note_state'])
         ############ get note and interval ############ 
-        note_ref, note_i_ref = extract_notes(note_label, state_label)
-        note_est, note_i_est = extract_notes(pred['note'], pred['note_state'])
+        note_ref, note_i_ref = extract_notes(note_label) #, state_label)
+        note_est, note_i_est = extract_notes(pred['note']) #, pred['note_state'])
 
         ############ evaluate notes ############
         acc = evaluate_frame_accuracy(note_label, pred['note']) # frame level
@@ -130,7 +130,7 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
     metrics['metric/note/f1_macro'].append(f)
     return metrics#, val_loss
 
-def eval_model(model, ep, loader, VAT_start=0, VAT=False, tech_weights=None):
+def eval_model(model, ep, loader, VAT_start=0, VAT=False):
     model.eval()
     batch_size = loader.batch_size
     metrics = defaultdict(list)

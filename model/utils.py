@@ -99,7 +99,7 @@ def plot_transcription_A(writer, ep, figname, note_interval, note, tech_interval
             ax[1].vlines(t[0], ymin=0, ymax=8, linestyles='dotted')
     writer.add_figure(figname, fig, ep)
 
-def plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_interval, tech):
+def plot_transcription(writer, ep, figname, mel, note_interval, note, tech_interval, tech, state):
     tech_trans = {
         0: '0',
         1: 's',
@@ -115,7 +115,7 @@ def plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_int
     fig = plt.figure(constrained_layout=True, figsize=(48,25))
     subfigs = fig.subfigures(2, 2)
     subfigs = subfigs.flat
-    for i, (spec, x, y, x_tech, y_tech) in enumerate(zip(mel, note_interval, note, tech_interval, tech)):
+    for i, (spec, x, y, x_tech, y_tech, onset) in enumerate(zip(mel, note_interval, note, tech_interval, tech, state)):
         subfigs[i].suptitle(f'Transcription {i}')
         ax = subfigs[i].subplots(3, 1, gridspec_kw={'height_ratios': [4, 4,1]})
         ax = ax.flat
@@ -133,7 +133,10 @@ def plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_int
             x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
             y_val = np.full(len(x_val), y[j])
             ax[1].plot(x_val, y_val)
-            ax[1].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
+            # ax[1].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
+        # onset information
+        for o in onset:
+            ax[1].vlines(o, ymin=51, ymax=100, linestyles='dotted')
         # techique transcription
         ax[2].set_xlabel('time (t)')
         ax[2].set_ylabel('technique')
@@ -148,10 +151,10 @@ def plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_int
             ax[2].vlines(t[0], ymin=0, ymax=9, linestyles='dotted')
     writer.add_figure(figname+'_B', fig, ep)
 
-def plot_transcription(writer, ep, figname, mel, note_interval, note, tech_interval, tech):
-    plot_transcription_A(writer, ep, figname, note_interval, note, tech_interval, tech)
-    # another representation of transcription
-    plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_interval, tech)
+# def plot_transcription(writer, ep, figname, mel, note_interval, note, tech_interval, tech):
+#     plot_transcription_A(writer, ep, figname, note_interval, note, tech_interval, tech)
+#     # another representation of transcription
+#     plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_interval, tech)
 
 def plot_confusion_matrix(cm, writer, ep, title='Prediction', tensor_name = 'MyFigure/image', dtype='d', fontsize=20):
     ''' 

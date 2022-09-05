@@ -69,11 +69,11 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_NewStructureOldUnet'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_Dropout0.3MoreAndAddStateArgmaxThres0.4WithLogits'
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                    VAT, VAT_start, reconstruction, tech_weights=None):
+                    VAT, VAT_start, reconstruction):
     technique_dict = {
         0: 'no tech',
         1: 'slide',
@@ -91,7 +91,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -129,9 +129,9 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
         # Show the transcription result in validation period
         print('Show the transcription result')
-        plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'])
+        plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'], transcriptions['state_gt'])
 
-        plot_transcription(writer, ep, 'transcription/prediction', mel, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'])
+        plot_transcription(writer, ep, 'transcription/prediction', mel, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'], transcriptions['state'])
 
         # Plot confusion matrix
         print('Plot confusion matrix')
@@ -155,19 +155,15 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         #     writer.add_figure('images/Spec_adv', fig , ep)
 
         model.eval()
-        test_losses = eval_model(model, ep, val_loader, VAT_start, VAT, tech_weights)
+        test_losses = eval_model(model, ep, val_loader, VAT_start, VAT)
         for key, values in test_losses.items():
             if key.startswith('loss/'):
                 writer.add_scalar(key, np.mean(values), global_step=ep)
-        # model.eval()
-        # test_losses = eval_model(model, ep, supervised_loader, VAT_start, VAT, tech_weights)
-        # for key, values in test_losses.items():
-        #     if key.startswith('loss/'):
-        #         writer.add_scalar(key, np.mean(values), global_step=ep)
+
     if ep%(2 * logging_freq) == 0:
         # test on training set
         with torch.no_grad():
-            mertics = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction, tech_weights=tech_weights)
+            mertics = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, _, name = key.split('/')
@@ -243,9 +239,8 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
 #                                                                      generator=torch.Generator().manual_seed(42))
     
     # get weight of tech label for BCE loss
-
-    # tech_weights = compute_dataset_weight(device)
-    tech_weights = None
+    bce_weights = compute_dataset_weight(device)
+    #bce_weights = None
 
     print("train_set: ", len(train_set))
     print("unsupervised_set: ", len(unsupervised_set))
@@ -258,7 +253,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     # model setting
     ds_ksize, ds_stride = 2, 2   
     model = UNet(ds_ksize,ds_stride, log=log, reconstruction=reconstruction,
-                    mode=mode, spec=spec, device=device, XI=XI, eps=eps, weights=tech_weights)
+                    mode=mode, spec=spec, device=device, XI=XI, eps=eps, weights=bce_weights)
     model.to(device)
     if resume_iteration is None:  
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
@@ -288,11 +283,11 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         if ep < VAT_start or VAT == False:
             tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                            False, VAT_start, reconstruction, tech_weights)
+                            False, VAT_start, reconstruction)
         else:
             tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                            True, VAT_start, reconstruction, tech_weights)            
+                            True, VAT_start, reconstruction)            
 
         # Saving model
         # if (ep)%saving_freq == 0:
