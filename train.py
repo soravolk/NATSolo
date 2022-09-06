@@ -69,7 +69,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_Dropout0.3MoreAndAddStateArgmaxThres0.4WithLogits'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_RemoveDetachOfFirstNotePostAddNoteDetachRule'
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -103,16 +103,19 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         #     writer.add_scalar(key, value.item(), global_step=ep) 
 
         # visualized validation audio
-        predictions, _, spec, post, latent = model.run_on_batch(batch_visualize, None, VAT)
+        predictions, _, spec, post_a, post, latent = model.run_on_batch(batch_visualize, None, VAT)
         mel = spec[0]
         flux = spec[1]
         # Show the original transcription and spectrograms
         #loss = sum(losses.values())
+        state_post_a = post_a[0] # processed by attention
+        group_post_a = post_a[1]
+        note_post_a = post_a[2]
+        tech_post_a = post_a[3]
         state_post = post[0]
         group_post = post[1]
-        note_post_1 = post[2]
-        note_post = post[3]
-        tech_post = post[4]
+        note_post = post[2]
+        tech_post = post[3]
         state_latent = latent[0][:,1,:,:].squeeze(1)
         group_latent = latent[1][:,1,:,:].squeeze(1)
 
@@ -121,9 +124,12 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         # plot features
         plot_spec_and_post(writer, ep, state_post, 'images/state_post')
         plot_spec_and_post(writer, ep, group_post, 'images/group_post')
-        plot_spec_and_post(writer, ep, note_post_1, 'images/note_post_1')
         plot_spec_and_post(writer, ep, note_post, 'images/note_post')
         plot_spec_and_post(writer, ep, tech_post, 'images/tech_post')
+        plot_spec_and_post(writer, ep, state_post_a, 'images/state_post_a')
+        plot_spec_and_post(writer, ep, group_post_a, 'images/group_post_a')
+        plot_spec_and_post(writer, ep, note_post_a, 'images/note_post_a')
+        plot_spec_and_post(writer, ep, tech_post_a, 'images/tech_post_a')
         plot_spec_and_post(writer, ep, state_latent, 'images/state_latent')
         plot_spec_and_post(writer, ep, group_latent, 'images/group_latent')
         plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')

@@ -196,38 +196,23 @@ class d_block(nn.Module):
             x = F.leaky_relu(self.bn2(self.conv2(x)))
         return x
 
+
 class Decoder(nn.Module):
-    def __init__(self,ds_ksize, ds_stride, num_output, skip=True): # num_techniques?
+    def __init__(self,ds_ksize, ds_stride, num_output, skip=True, drop=None): # num_techniques?
         super(Decoder, self).__init__()
         self.d_block1 = d_block(192,64,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         self.d_block2 = d_block(96,32,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         self.d_block3 = d_block(48,16,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         self.d_block4 = d_block(16,num_output,True,(3,3),(1,1),ds_ksize, ds_stride, skip)
-
-    def forward(self, x, s, c=[None,None,None,None]):
-        x = self.d_block1(x,s[0],False,c[0])
-        x = self.d_block2(x,s[1],False,c[1])
-        x = self.d_block3(x,s[2],False,c[2])
-        x = self.d_block4(x,s[3],True,c[3])
-#         reconsturction = torch.sigmoid(self.d_block4(x,s[0],True,c[3]))
-#       return torch.sigmoid(x) # This is required to boost the accuracy
-        return x # This is required to boost the accuracy
-
-class Decoder(nn.Module):
-    def __init__(self,ds_ksize, ds_stride, num_output, skip=True, drop=False): # num_techniques?
-        super(Decoder, self).__init__()
-        self.d_block1 = d_block(192,64,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        self.d_block2 = d_block(96,32,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        self.d_block3 = d_block(48,16,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        self.d_block4 = d_block(16,num_output,True,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        self.dropout = nn.Dropout(0.3)
         self.drop = drop
+        if self.drop is not None:
+            self.dropout = nn.Dropout(drop)
 
     def forward(self, x, s, c=[None,None,None,None]):
         x = self.d_block1(x,s[0],False,c[0])
         x = self.d_block2(x,s[1],False,c[1])       
         x = self.d_block3(x,s[2],False,c[2])
-        if self.drop:
+        if self.drop is not None:
             x = self.dropout(x)        
         x = self.d_block4(x,s[3],True,c[3])
         if self.drop:
@@ -239,11 +224,11 @@ class Spec2Roll(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
         self.state_encoder = Encoder(4, ds_ksize, ds_stride)
-        self.state_decoder = Decoder(ds_ksize, ds_stride, 1, skip=False)
-        self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=True)
+        self.state_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.25, skip=False)
+        self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
         self.group_encoder = Encoder(4, ds_ksize, ds_stride)
-        self.group_decoder = Decoder(ds_ksize, ds_stride, 1, skip=False)
-        self.note_tech_decoder = Decoder(ds_ksize, ds_stride, 2)
+        self.group_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.25, skip=False)
+        self.tech_decoder = Decoder(ds_ksize, ds_stride, 2, drop=0.4)
 
         self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*complexity, 31, position=True, groups=complexity)
         self.dropout_layer = nn.Dropout(0.25)
@@ -256,66 +241,69 @@ class Spec2Roll(nn.Module):
         # state note U-net
         state_enc,s,c = self.state_encoder(x)
         state_post = self.state_decoder(state_enc,s) # do not pass c -> no skip
-        note_post_1 = self.note_decoder(state_enc,s,c)
-        # group tech note U-net
-        x = torch.cat((note_post_1, x[:,:-1,:,:]), 1)
+        note_post = self.note_decoder(state_enc,s,c)
+        # group tech U-net
+        x = torch.cat((note_post, x[:,:-1,:,:]), 1)
         group_enc,s,c = self.group_encoder(x)
         group_post = self.group_decoder(group_enc,s)
-        note_tech_post = self.note_tech_decoder(group_enc,s,c)
+        note_tech_post = self.tech_decoder(group_enc,s,c)
 
         #################### attention #########################
-        state_post, a = self.state_attention(state_post.squeeze(1))
-        group_post, a = self.group_attention(group_post.squeeze(1))
-        note_post, a = self.note_attention(note_tech_post[:,0,:,:].squeeze(1))
-        tech_post, a = self.tech_attention(note_tech_post[:,1,:,:].squeeze(1))
+        state_post_a, a = self.state_attention(state_post.squeeze(1))
+        group_post_a, a = self.group_attention(group_post.squeeze(1))
+        note_post_a, a = self.note_attention(note_tech_post[:,0,:,:].squeeze(1))
+        tech_post_a, a = self.tech_attention(note_tech_post[:,1,:,:].squeeze(1))
+        # note_post_a, a = self.note_attention(note_post.squeeze(1))
+        # tech_post_a, a = self.tech_attention(tech_post.squeeze(1))
 
         #################### detach #########################
-        state_proxy = torch.sigmoid(state_post.detach())
-        group_proxy = torch.sigmoid(group_post.detach())
-        tech_proxy = torch.sigmoid(tech_post.detach())
+        state_proxy = torch.sigmoid(state_post_a.detach())
+        group_proxy = torch.sigmoid(group_post_a.detach())
+        tech_proxy = torch.sigmoid(tech_post_a.detach())
+        note_proxy = torch.sigmoid(note_post_a.detach())
         dim = state_proxy.shape[-2]
         state_proxy = state_proxy.reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
         group_proxy = group_proxy.reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
         tech_proxy = tech_proxy.reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
+        note_proxy = note_proxy.reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
 
         note_detach_idx = []
         tech_detach_idx = []
-        for i, (s, g, t) in enumerate(zip(state_proxy, group_proxy, tech_proxy)):
-            onset = False
-            for j, (state_frame, group_frame, tech_frame) in enumerate(zip(s, g, t)):
+        for i, (s, g, t, n) in enumerate(zip(state_proxy, group_proxy, tech_proxy, note_proxy)):
+            note_on = False
+            event_note = None
+            for j, (state_frame, group_frame, tech_frame, note_frame) in enumerate(zip(s, g, t, n)):
                 # assert(note_state < 3 and tech_group < 4)
-                if onset == False and state_frame == 1:
-                    onset = True
+                if not note_on and state_frame == 1:
+                    note_on = True
+                    event_note = note_frame
 
-                if onset:
-                    if state_frame != 0:
-                        continue
-                    else:
-                        onset = False
+                if note_on:
+                    if note_frame != event_note and state_frame != 1:
+                        note_on = False
+                    elif state_frame == 0:
+                        note_on = False
 
-                if onset == False:
+                if not note_on:
                     note_detach_idx.append((i, j))
                     tech_detach_idx.append((i, j))
-
-                if group_frame == 0:
-                    tech_detach_idx.append((i, j))
-                elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
-                    tech_detach_idx.append((i, j))
-                elif group_frame == 2 and (tech_frame not in [5, 7, 8]): 
-                    tech_detach_idx.append((i, j))
-                elif group_frame == 3 and (tech_frame not in [4, 6]): 
-                    tech_detach_idx.append((i, j))
+                else:
+                    if group_frame == 0:
+                        tech_detach_idx.append((i, j))
+                    elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
+                        tech_detach_idx.append((i, j))
+                    elif group_frame == 2 and (tech_frame not in [5, 7, 8]): 
+                        tech_detach_idx.append((i, j))
+                    elif group_frame == 3 and (tech_frame not in [4, 6]): 
+                        tech_detach_idx.append((i, j))
         # detach invalid prediction
         for idx in note_detach_idx:
-            note_post[idx[0]][idx[1]] = note_post[idx[0]][idx[1]].detach()
+            note_post_a[idx[0]][idx[1]] = note_post_a[idx[0]][idx[1]].detach()
         for idx in tech_detach_idx:
-            tech_post[idx[0]][idx[1]] = tech_post[idx[0]][idx[1]].detach()
+            tech_post_a[idx[0]][idx[1]] = tech_post_a[idx[0]][idx[1]].detach()
         #################### detach #########################
 
-        if training:
-            return (state_post, group_post, note_post, tech_post), None, None
-        else:
-            return (state_post, group_post, note_post, tech_post), (state_post, group_post, note_post_1, note_post, tech_post), (state_enc, group_enc)
+        return (state_post_a, group_post_a, note_post_a, tech_post_a), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), note_tech_post[:,1,:,:].squeeze(1), note_tech_post[:,0,:,:].squeeze(1)), (state_enc, group_enc)
 
 ### VAT for unlabelled data ###
 ''' loss for VAT '''
@@ -528,14 +516,14 @@ class UNet(nn.Module):
         # spec_1 = self.get_spec(audio, 512) # x = torch.rand(8, 229, 640)
         # spec_2 = self.get_spec(audio, 768)
         # spec_3 = self.get_spec(audio, 1024)
-        spec_1 = torch.log(1 + 10 * spec_1) # (spec_1 + 1e-5)
-        spec_2 = torch.log(1 + 10 * spec_2)
-        spec_3 = torch.log(1 + 10 * spec_3)
+        spec_1 = self.spectrogram_1(audio) # x = torch.rand(8,229, 640)
+        spec_2 = self.spectrogram_2(audio)
+        spec_3 = self.spectrogram_3(audio)
         # log compression
         if self.log:
-            spec_1 = torch.log(spec_1 + 1e-5) # 1
-            spec_2 = torch.log(spec_2 + 1e-5)
-            spec_3 = torch.log(spec_3 + 1e-5)
+            spec_1 = torch.log(1 + 5 * spec_1) # (spec_1 + 1e-5)
+            spec_2 = torch.log(1 + 5 * spec_2)
+            spec_3 = torch.log(1 + 5 * spec_3)
         # Normalizing spectrograms
         spec_1 = self.normalize.transform(spec_1)
         spec_2 = self.normalize.transform(spec_2)
@@ -559,9 +547,6 @@ class UNet(nn.Module):
         
         
         pred, post, latent = self(spec)
-        # technique_pred = technique_pred[:, :gt_bin, :].reshape(-1, 10)
-        # print('======state_pred.shape=======', state_pred.shape)
-        # print('======tech_note_pred.shape=======', tech_note_pred.shape)
         if self.training:
             predictions = {
                     'note_state': pred[0].reshape(-1, 3),
@@ -571,6 +556,7 @@ class UNet(nn.Module):
                     'r_adv': r_adv,
                     }
             losses = {
+                    #'loss/train_reconstruct_notepost': F.mse_loss(post[2], post[-1].detach()),
                     'loss/train_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label, pos_weight=state_weights),
                     'loss/train_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label, pos_weight=group_weights),
                     'loss/train_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
@@ -603,6 +589,7 @@ class UNet(nn.Module):
                     'r_adv': r_adv,
                     }                       
             losses = {
+                    #'loss/test_reconstruct_notepost': F.mse_loss(post[2], post[-1].detach()),
                     'loss/test_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label),
                     'loss/test_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label),
                     'loss/test_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
@@ -610,7 +597,7 @@ class UNet(nn.Module):
                     'loss/test_LDS_l': lds_l,
                     'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                     }
-            return predictions, losses, (spec[:,1,:,:].squeeze(1), spec[:,3,:,:].squeeze(1)), post, latent
+            return predictions, losses, (spec[:,1,:,:].squeeze(1), spec[:,3,:,:].squeeze(1)), pred, post, latent
 
     def load_my_state_dict(self, state_dict):
         """Useful when loading part of the weights. From https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2"""

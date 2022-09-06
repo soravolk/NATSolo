@@ -261,6 +261,7 @@ def compute_dataset_weight(device):
     tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
     note_state_weights = compute_class_weight('balanced', np.unique(y_2), y_2)
     note_state_weights = torch.tensor(note_state_weights, dtype=torch.float).to(device)
+    note_state_weights[1] = 3 * note_state_weights[1] # weight more for onset
     tech_weights = compute_class_weight('balanced', np.unique(y_3), y_3)
     tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
 
