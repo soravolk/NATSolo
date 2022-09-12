@@ -41,15 +41,14 @@ class AudioDataset(Dataset):
             all_steps = self.sequence_length // HOP_LENGTH
             step_end = step_begin + all_steps
             # trim audio time to fit the frame
-            begin = step_begin * HOP_LENGTH 
-            end = (step_end - 1) * HOP_LENGTH
+            begin = step_begin * HOP_LENGTH
+            end = step_end * HOP_LENGTH
             # end = begin + self.sequence_length
-            result['audio'] = data['audio'][begin:end+1].to(self.device)
+            result['audio'] = data['audio'][begin:end-1].to(self.device)
             # for labelled data
             if data.get('label') is not None:
               ####### why it should be float?? #######
               result['label'] = data['label'][step_begin:step_end].to(self.device).float()
-
             result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
         else:
             # result['audio'] = data['audio'].to(self.device)
@@ -167,9 +166,9 @@ class AudioDataset(Dataset):
                 note_state_label[left: right - 1] = 1
                 note_state_label[right - 1] = 0
             else:
-                note_state_label[left: left + 3] = 1 # onset
-                note_state_label[left + 3: right - 1] = 2 # activate
-                note_state_label[right - 2: right - 1] = 0
+                note_state_label[left: left + 4] = 1 # onset
+                note_state_label[left + 4: right - 2] = 2 # activate
+                note_state_label[right - 2: right] = 0
 
             note_label[left:right] = note
         
@@ -261,7 +260,8 @@ def compute_dataset_weight(device):
     tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
     note_state_weights = compute_class_weight('balanced', np.unique(y_2), y_2)
     note_state_weights = torch.tensor(note_state_weights, dtype=torch.float).to(device)
-    note_state_weights[1] = 3 * note_state_weights[1] # weight more for onset
+    note_state_weights[1] = 4 * note_state_weights[1] # weight more for onset
+    note_state_weights[2] = 2 * note_state_weights[2]
     tech_weights = compute_class_weight('balanced', np.unique(y_3), y_3)
     tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
 

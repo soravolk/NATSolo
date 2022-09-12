@@ -223,12 +223,12 @@ class Decoder(nn.Module):
 class Spec2Roll(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
-        self.state_encoder = Encoder(4, ds_ksize, ds_stride)
+        self.state_group_encoder = Encoder(4, ds_ksize, ds_stride)
         self.state_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.25, skip=False)
-        self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
-        self.group_encoder = Encoder(4, ds_ksize, ds_stride)
         self.group_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.25, skip=False)
-        self.tech_decoder = Decoder(ds_ksize, ds_stride, 2, drop=0.4)
+        self.note_tech_encoder = Encoder(5, ds_ksize, ds_stride)
+        self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
+        self.tech_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
 
         self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*complexity, 31, position=True, groups=complexity)
         self.dropout_layer = nn.Dropout(0.25)
@@ -239,33 +239,33 @@ class Spec2Roll(nn.Module):
         
     def forward(self, x, training):
         # state note U-net
-        state_enc,s,c = self.state_encoder(x)
-        state_post = self.state_decoder(state_enc,s) # do not pass c -> no skip
-        note_post = self.note_decoder(state_enc,s,c)
+        state_group_enc,s,c = self.state_group_encoder(x)
+        state_post = self.state_decoder(state_group_enc,s) # do not pass c -> no skip
+        group_post = self.group_decoder(state_group_enc,s)
         # group tech U-net
-        x = torch.cat((note_post, x[:,:-1,:,:]), 1)
-        group_enc,s,c = self.group_encoder(x)
-        group_post = self.group_decoder(group_enc,s)
-        note_tech_post = self.tech_decoder(group_enc,s,c)
+        x = torch.cat((state_post.detach(), group_post.detach(), x[:,:-1,:,:]), 1)
+        note_tech_enc,s,c = self.note_tech_encoder(x)
+        note_post = self.note_decoder(note_tech_enc,s,c)
+        tech_post = self.tech_decoder(note_tech_enc,s,c)
 
         #################### attention #########################
         state_post_a, a = self.state_attention(state_post.squeeze(1))
         group_post_a, a = self.group_attention(group_post.squeeze(1))
-        note_post_a, a = self.note_attention(note_tech_post[:,0,:,:].squeeze(1))
-        tech_post_a, a = self.tech_attention(note_tech_post[:,1,:,:].squeeze(1))
+        note_post_a, a = self.note_attention(note_post.squeeze(1))
+        tech_post_a, a = self.tech_attention(tech_post.squeeze(1))
         # note_post_a, a = self.note_attention(note_post.squeeze(1))
         # tech_post_a, a = self.tech_attention(tech_post.squeeze(1))
 
         #################### detach #########################
         state_proxy = torch.sigmoid(state_post_a.detach())
         group_proxy = torch.sigmoid(group_post_a.detach())
-        tech_proxy = torch.sigmoid(tech_post_a.detach())
         note_proxy = torch.sigmoid(note_post_a.detach())
+        tech_proxy = torch.sigmoid(tech_post_a.detach())
         dim = state_proxy.shape[-2]
         state_proxy = state_proxy.reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
         group_proxy = group_proxy.reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
-        tech_proxy = tech_proxy.reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
         note_proxy = note_proxy.reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
+        tech_proxy = tech_proxy.reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
 
         note_detach_idx = []
         tech_detach_idx = []
@@ -281,7 +281,7 @@ class Spec2Roll(nn.Module):
                 if note_on:
                     if note_frame != event_note and state_frame != 1:
                         note_on = False
-                    elif state_frame == 0:
+                    elif note_frame == 0 or state_frame == 0:
                         note_on = False
 
                 if not note_on:
@@ -303,7 +303,7 @@ class Spec2Roll(nn.Module):
             tech_post_a[idx[0]][idx[1]] = tech_post_a[idx[0]][idx[1]].detach()
         #################### detach #########################
 
-        return (state_post_a, group_post_a, note_post_a, tech_post_a), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), note_tech_post[:,1,:,:].squeeze(1), note_tech_post[:,0,:,:].squeeze(1)), (state_enc, group_enc)
+        return (state_post_a, group_post_a, note_post_a, tech_post_a), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
 
 ### VAT for unlabelled data ###
 ''' loss for VAT '''

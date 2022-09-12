@@ -76,12 +76,12 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
         tech_ref, tech_i_ref = extract_technique(tech_label, scale2time=True) # (tech_label, state_label)
         tech_est, tech_i_est = extract_technique(pred['tech'].squeeze(0), scale2time=True) # (pred['tech'], pred['note_state'])
         ############ get note and interval ############ 
-        note_ref, note_i_ref = extract_notes(note_label) #, state_label)
-        note_est, note_i_est = extract_notes(pred['note']) #, pred['note_state'])
+        note_ref, note_i_ref = extract_notes(note_label, state_label)
+        note_est, note_i_est = extract_notes(pred['note'], pred['note_state'])
 
         ############ evaluate notes ############
         acc = evaluate_frame_accuracy(note_label, pred['note']) # frame level
-        p, r, f, o = evaluate_notes(note_i_ref, note_ref, note_i_est, note_est, offset_ratio=None)
+        p, r, f, o = evaluate_notes(note_i_ref, note_ref, note_i_est, note_est, strict=False, offset_ratio=None)
         metrics['metric/note/accuracy'].append(acc)
         metrics['metric/note/precision'].append(p)
         metrics['metric/note/recall'].append(r)
