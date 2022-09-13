@@ -135,7 +135,7 @@ class block(nn.Module):
         return xp, xp, x12.size()
 
 class Encoder(nn.Module):
-    def __init__(self,inp,ds_ksize, ds_stride):
+    def __init__(self,inp,ds_ksize, ds_stride, drop=None):
         super(Encoder, self).__init__()
         # WARNING: change the input channel from 1 to 3 to test different window sizes
         self.block1 = block(inp,16,(3,3),(1,1),ds_ksize, ds_stride)
@@ -146,12 +146,19 @@ class Encoder(nn.Module):
         self.conv1 = nn.Conv2d(64,64, kernel_size=(3,3), padding=(1,1)) 
         self.conv2 = nn.Conv2d(32,32, kernel_size=(3,3), padding=(1,1)) 
         self.conv3 = nn.Conv2d(16,16, kernel_size=(3,3), padding=(1,1)) 
+        self.drop = drop
+        if self.drop is not None:
+            self.dropout = nn.Dropout(drop)
 
     def forward(self, x):
         x1,idx1,s1 = self.block1(x)
         x2,idx2,s2 = self.block2(x1)
         x3,idx3,s3 = self.block3(x2)
+        if self.drop is not None:
+            x3 = self.dropout(x3)    
         x4,idx4,s4 = self.block4(x3)
+        if self.drop is not None:
+            x4 = self.dropout(x4)    
 
         skip3=self.conv1(x3) 
         skip2=self.conv2(x2) 
@@ -215,7 +222,7 @@ class Decoder(nn.Module):
         if self.drop is not None:
             x = self.dropout(x)        
         x = self.d_block4(x,s[3],True,c[3])
-        if self.drop:
+        if self.drop is not None:
             x = self.dropout(x) 
 
         return x # This is required to boost the accuracy
@@ -223,27 +230,29 @@ class Decoder(nn.Module):
 class Spec2Roll(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
-        self.state_group_encoder = Encoder(4, ds_ksize, ds_stride)
-        self.state_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.25, skip=False)
-        self.group_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.25, skip=False)
-        self.note_tech_encoder = Encoder(5, ds_ksize, ds_stride)
-        self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
+        self.state_group_encoder = Encoder(4, ds_ksize, ds_stride, drop=0.1)
+        self.state_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3, skip=False)
+        self.group_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3, skip=False)
+        self.note_tech_encoder = Encoder(6, ds_ksize, ds_stride, drop=0.1)
+        self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
         self.tech_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
 
         self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*complexity, 31, position=True, groups=complexity)
-        self.dropout_layer = nn.Dropout(0.25)
-        self.state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=3, dropout=0)
-        self.group_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=4, dropout=0)
-        self.note_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0)
-        self.tech_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0)
-        
+        # stack = attention + fc
+        self.state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=3, dropout=0.2)
+        self.group_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=4, dropout=0.2)
+        self.note_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
+        self.tech_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
+        self.state_note_attention = Stack(input_size=53, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
+        self.group_tech_attention = Stack(input_size=13, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
+
     def forward(self, x, training):
         # state note U-net
         state_group_enc,s,c = self.state_group_encoder(x)
         state_post = self.state_decoder(state_group_enc,s) # do not pass c -> no skip
         group_post = self.group_decoder(state_group_enc,s)
         # group tech U-net
-        x = torch.cat((state_post.detach(), group_post.detach(), x[:,:-1,:,:]), 1)
+        x = torch.cat((state_post.detach(), group_post.detach(), x), 1)
         note_tech_enc,s,c = self.note_tech_encoder(x)
         note_post = self.note_decoder(note_tech_enc,s,c)
         tech_post = self.tech_decoder(note_tech_enc,s,c)
@@ -251,59 +260,64 @@ class Spec2Roll(nn.Module):
         #################### attention #########################
         state_post_a, a = self.state_attention(state_post.squeeze(1))
         group_post_a, a = self.group_attention(group_post.squeeze(1))
-        note_post_a, a = self.note_attention(note_post.squeeze(1))
-        tech_post_a, a = self.tech_attention(tech_post.squeeze(1))
-        # note_post_a, a = self.note_attention(note_post.squeeze(1))
-        # tech_post_a, a = self.tech_attention(tech_post.squeeze(1))
+        note_post_ab, a = self.note_attention(note_post.squeeze(1))
+        tech_post_ab, a = self.tech_attention(tech_post.squeeze(1))
+        state_prob = torch.sigmoid(state_post_a.detach())
+        group_prob = torch.sigmoid(group_post_a.detach())
+        note_prob = torch.sigmoid(note_post_ab)
+        tech_prob = torch.sigmoid(tech_post_ab)
+        state_note_cat = torch.cat((state_prob.squeeze(1), note_prob.squeeze(1)), 2)
+        group_tech_cat = torch.cat((group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
+        note_post_a, a = self.state_note_attention(state_note_cat)
+        tech_post_a, a = self.group_tech_attention(group_tech_cat)
 
         #################### detach #########################
-        state_proxy = torch.sigmoid(state_post_a.detach())
-        group_proxy = torch.sigmoid(group_post_a.detach())
-        note_proxy = torch.sigmoid(note_post_a.detach())
-        tech_proxy = torch.sigmoid(tech_post_a.detach())
-        dim = state_proxy.shape[-2]
-        state_proxy = state_proxy.reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
-        group_proxy = group_proxy.reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
-        note_proxy = note_proxy.reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
-        tech_proxy = tech_proxy.reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
+        # state_proxy = torch.sigmoid(state_post_a.detach())
+        # group_proxy = torch.sigmoid(group_post_a.detach())
+        # note_proxy = torch.sigmoid(note_post_a.detach())
+        # tech_proxy = torch.sigmoid(tech_post_a.detach())
+        # dim = state_proxy.shape[-2]
+        # state_proxy = state_proxy.reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
+        # group_proxy = group_proxy.reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
+        # note_proxy = note_proxy.reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
+        # tech_proxy = tech_proxy.reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
 
-        note_detach_idx = []
-        tech_detach_idx = []
-        for i, (s, g, t, n) in enumerate(zip(state_proxy, group_proxy, tech_proxy, note_proxy)):
-            note_on = False
-            event_note = None
-            for j, (state_frame, group_frame, tech_frame, note_frame) in enumerate(zip(s, g, t, n)):
-                # assert(note_state < 3 and tech_group < 4)
-                if not note_on and state_frame == 1:
-                    note_on = True
-                    event_note = note_frame
+        # note_detach_idx = []
+        # tech_detach_idx = []
+        # for i, (s, g, t, n) in enumerate(zip(state_proxy, group_proxy, tech_proxy, note_proxy)):
+        #     note_on = False
+        #     event_note = None
+        #     for j, (state_frame, group_frame, tech_frame, note_frame) in enumerate(zip(s, g, t, n)):
+        #         # assert(note_state < 3 and tech_group < 4)
+        #         if not note_on and state_frame == 1:
+        #             note_on = True
+        #             event_note = note_frame
 
-                if note_on:
-                    if note_frame != event_note and state_frame != 1:
-                        note_on = False
-                    elif note_frame == 0 or state_frame == 0:
-                        note_on = False
+        #         if note_on:
+        #             if note_frame != event_note and state_frame != 1:
+        #                 note_on = False
+        #             elif note_frame == 0 or state_frame == 0:
+        #                 note_on = False
 
-                if not note_on:
-                    note_detach_idx.append((i, j))
-                    tech_detach_idx.append((i, j))
-                else:
-                    if group_frame == 0:
-                        tech_detach_idx.append((i, j))
-                    elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
-                        tech_detach_idx.append((i, j))
-                    elif group_frame == 2 and (tech_frame not in [5, 7, 8]): 
-                        tech_detach_idx.append((i, j))
-                    elif group_frame == 3 and (tech_frame not in [4, 6]): 
-                        tech_detach_idx.append((i, j))
-        # detach invalid prediction
-        for idx in note_detach_idx:
-            note_post_a[idx[0]][idx[1]] = note_post_a[idx[0]][idx[1]].detach()
-        for idx in tech_detach_idx:
-            tech_post_a[idx[0]][idx[1]] = tech_post_a[idx[0]][idx[1]].detach()
+        #         if not note_on:
+        #             note_detach_idx.append((i, j))
+        #             tech_detach_idx.append((i, j))
+        #         else:
+        #             if group_frame == 0:
+        #                 tech_detach_idx.append((i, j))
+        #             elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
+        #                 tech_detach_idx.append((i, j))
+        #             elif group_frame == 2 and (tech_frame not in [5, 7, 8]): 
+        #                 tech_detach_idx.append((i, j))
+        #             elif group_frame == 3 and (tech_frame not in [4, 6]): 
+        #                 tech_detach_idx.append((i, j))
+        # # detach invalid prediction
+        # for idx in note_detach_idx:
+        #     note_post_a[idx[0]][idx[1]] = note_post_a[idx[0]][idx[1]].detach()
+        # for idx in tech_detach_idx:
+        #     tech_post_a[idx[0]][idx[1]] = tech_post_a[idx[0]][idx[1]].detach()
         #################### detach #########################
-
-        return (state_post_a, group_post_a, note_post_a, tech_post_a), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
+        return (state_post_a, group_post_a, note_post_a, tech_post_a, note_post_ab, tech_post_ab), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
 
 ### VAT for unlabelled data ###
 ''' loss for VAT '''
