@@ -230,9 +230,9 @@ class Decoder(nn.Module):
 class Spec2Roll(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
-        self.state_group_encoder = Encoder(4, ds_ksize, ds_stride, drop=0.1)
-        self.state_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3, skip=False)
-        self.group_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3, skip=False)
+        self.state_group_encoder = Encoder(4, ds_ksize, ds_stride, drop=0.2)
+        self.state_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
+        self.group_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
         self.note_tech_encoder = Encoder(6, ds_ksize, ds_stride, drop=0.1)
         self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
         self.tech_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
@@ -246,11 +246,12 @@ class Spec2Roll(nn.Module):
         self.state_note_attention = Stack(input_size=53, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
         self.group_tech_attention = Stack(input_size=13, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
 
+
     def forward(self, x, training):
         # state note U-net
         state_group_enc,s,c = self.state_group_encoder(x)
-        state_post = self.state_decoder(state_group_enc,s) # do not pass c -> no skip
-        group_post = self.group_decoder(state_group_enc,s)
+        state_post = self.state_decoder(state_group_enc,s, c) # do not pass c -> no skip
+        group_post = self.group_decoder(state_group_enc,s, c)
         # group tech U-net
         x = torch.cat((state_post.detach(), group_post.detach(), x), 1)
         note_tech_enc,s,c = self.note_tech_encoder(x)
@@ -271,52 +272,6 @@ class Spec2Roll(nn.Module):
         note_post_a, a = self.state_note_attention(state_note_cat)
         tech_post_a, a = self.group_tech_attention(group_tech_cat)
 
-        #################### detach #########################
-        # state_proxy = torch.sigmoid(state_post_a.detach())
-        # group_proxy = torch.sigmoid(group_post_a.detach())
-        # note_proxy = torch.sigmoid(note_post_a.detach())
-        # tech_proxy = torch.sigmoid(tech_post_a.detach())
-        # dim = state_proxy.shape[-2]
-        # state_proxy = state_proxy.reshape(-1, 3).argmax(axis=1).reshape(-1, dim)
-        # group_proxy = group_proxy.reshape(-1, 4).argmax(axis=1).reshape(-1, dim)
-        # note_proxy = note_proxy.reshape(-1, 50).argmax(axis=1).reshape(-1, dim)
-        # tech_proxy = tech_proxy.reshape(-1, 9).argmax(axis=1).reshape(-1, dim)
-
-        # note_detach_idx = []
-        # tech_detach_idx = []
-        # for i, (s, g, t, n) in enumerate(zip(state_proxy, group_proxy, tech_proxy, note_proxy)):
-        #     note_on = False
-        #     event_note = None
-        #     for j, (state_frame, group_frame, tech_frame, note_frame) in enumerate(zip(s, g, t, n)):
-        #         # assert(note_state < 3 and tech_group < 4)
-        #         if not note_on and state_frame == 1:
-        #             note_on = True
-        #             event_note = note_frame
-
-        #         if note_on:
-        #             if note_frame != event_note and state_frame != 1:
-        #                 note_on = False
-        #             elif note_frame == 0 or state_frame == 0:
-        #                 note_on = False
-
-        #         if not note_on:
-        #             note_detach_idx.append((i, j))
-        #             tech_detach_idx.append((i, j))
-        #         else:
-        #             if group_frame == 0:
-        #                 tech_detach_idx.append((i, j))
-        #             elif group_frame == 1 and (tech_frame not in [1, 2, 3]): 
-        #                 tech_detach_idx.append((i, j))
-        #             elif group_frame == 2 and (tech_frame not in [5, 7, 8]): 
-        #                 tech_detach_idx.append((i, j))
-        #             elif group_frame == 3 and (tech_frame not in [4, 6]): 
-        #                 tech_detach_idx.append((i, j))
-        # # detach invalid prediction
-        # for idx in note_detach_idx:
-        #     note_post_a[idx[0]][idx[1]] = note_post_a[idx[0]][idx[1]].detach()
-        # for idx in tech_detach_idx:
-        #     tech_post_a[idx[0]][idx[1]] = tech_post_a[idx[0]][idx[1]].detach()
-        #################### detach #########################
         return (state_post_a, group_post_a, note_post_a, tech_post_a, note_post_ab, tech_post_ab), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
 
 ### VAT for unlabelled data ###
@@ -352,7 +307,6 @@ class UNet_VAT(nn.Module):
         
         self.binwise = False
         self.reconstruction = reconstruction
-        # self.criterion = nn.BCEWithLogitsLoss(weight=weights, reduction='mean')
 
     def forward(self, model, x):  
         with torch.no_grad():
@@ -398,6 +352,28 @@ class UNet_VAT(nn.Module):
 
         return vat_loss, r_adv, _l2_normalize(d, binwise=self.binwise)  # already averaged   
 
+class CrossEntropyLoss(nn.Module):
+    def __init__(self, label_smooth=None, class_num=None):
+        super().__init__()
+        self.label_smooth = label_smooth
+        self.class_num = class_num
+
+    def forward(self, pred, target, weight=None):
+        eps = 1e-12
+        if self.label_smooth is not None:
+            probs = F.log_softmax(pred, dim=1) # softmax + log
+            target = torch.clamp(
+                target.float(),
+                min=self.label_smooth/(self.class_num-1),
+                max=1.0 - self.label_smooth)
+            if weight is not None:
+                loss = -1 * torch.sum((target * probs) * weight, 1)
+            else:
+                loss = -1 * torch.sum(target * probs, 1)
+            return loss.mean()
+        else:
+            # loss = -1 * pred.gather(1, target.unsqueeze(-1)) + torch.log(torch.exp(pred+eps).sum(dim=1))
+            return F.binary_cross_entropy_with_logits(pred, target, pos_weight=weight)
 
 ### Implement U-net for techniques detection ###
 class UNet(nn.Module):
@@ -561,6 +537,10 @@ class UNet(nn.Module):
         
         
         pred, post, latent = self(spec)
+        state_criterion = CrossEntropyLoss(0.05, 3)
+        group_criterion = CrossEntropyLoss(0.05, 4)
+        note_criterion = CrossEntropyLoss(0.05, 50)
+        tech_criterion = CrossEntropyLoss(0.05, 9)
         if self.training:
             predictions = {
                     'note_state': pred[0].reshape(-1, 3),
@@ -571,10 +551,14 @@ class UNet(nn.Module):
                     }
             losses = {
                     #'loss/train_reconstruct_notepost': F.mse_loss(post[2], post[-1].detach()),
-                    'loss/train_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label, pos_weight=state_weights),
-                    'loss/train_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label, pos_weight=group_weights),
-                    'loss/train_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
-                    'loss/train_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label, pos_weight=tech_weights),
+                    # 'loss/train_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label, pos_weight=state_weights),
+                    # 'loss/train_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label, pos_weight=group_weights),
+                    # 'loss/train_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
+                    # 'loss/train_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label, pos_weight=tech_weights),
+                    'loss/train_state': state_criterion(pred[0], state_label),#, weight=state_weights),
+                    'loss/train_group': group_criterion(pred[1], group_label),#, weight=group_weights),
+                    'loss/train_note': note_criterion(pred[2], note_label),
+                    'loss/train_tech': tech_criterion(pred[3], tech_label),#, weight=tech_weights),
                     'loss/train_LDS_l': lds_l,
                     'loss/train_LDS_ul': lds_ul,
                     'loss/train_r_norm_l': r_norm_l.abs().mean(),
@@ -604,10 +588,14 @@ class UNet(nn.Module):
                     }                       
             losses = {
                     #'loss/test_reconstruct_notepost': F.mse_loss(post[2], post[-1].detach()),
-                    'loss/test_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label),
-                    'loss/test_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label),
-                    'loss/test_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
-                    'loss/test_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label),
+                    # 'loss/test_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label),
+                    # 'loss/test_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label),
+                    # 'loss/test_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
+                    # 'loss/test_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label),
+                    'loss/test_state': state_criterion(pred[0], state_label),
+                    'loss/test_group': group_criterion(pred[1], group_label),
+                    'loss/test_note': note_criterion(pred[2], note_label),
+                    'loss/test_tech': tech_criterion(pred[3], tech_label),
                     'loss/test_LDS_l': lds_l,
                     'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                     }
