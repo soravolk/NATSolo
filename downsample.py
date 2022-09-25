@@ -12,6 +12,7 @@ for folder in folders:
         sound = AudioSegment.from_wav(wavfile)
         sound = sound.set_frame_rate(16000) # downsample it to 16000
         sound = sound.set_channels(1) # Convert Stereo to Mono
+        print(folder[:-3] + 'flac/' + filename[:-3] + 'flac')
         sound.export(folder[:-3] + 'flac/' + filename[:-3] + 'flac', format='flac')
 
 # for wavfile in glob('./Solo/*/wav/*.wav'):

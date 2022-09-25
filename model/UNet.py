@@ -231,21 +231,21 @@ class Spec2Roll(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
         self.state_group_encoder = Encoder(4, ds_ksize, ds_stride, drop=0.2)
-        self.state_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
+        self.state_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
         self.group_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
         self.note_tech_encoder = Encoder(6, ds_ksize, ds_stride, drop=0.1)
-        self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
-        self.tech_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.4)
+        self.note_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
+        self.tech_decoder = Decoder(ds_ksize, ds_stride, 1, drop=0.3)
 
         self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*complexity, 31, position=True, groups=complexity)
         # stack = attention + fc
         self.state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=3, dropout=0.2)
         self.group_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=4, dropout=0.2)
+        self.state_group_attention = Stack(input_size=7, hidden_dim=768, attn_size=31, attn_group=6, output_dim=3, dropout=0.2)
         self.note_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
         self.tech_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
         self.state_note_attention = Stack(input_size=53, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
         self.group_tech_attention = Stack(input_size=13, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
-
 
     def forward(self, x, training):
         # state note U-net
@@ -263,6 +263,7 @@ class Spec2Roll(nn.Module):
         group_post_a, a = self.group_attention(group_post.squeeze(1))
         note_post_ab, a = self.note_attention(note_post.squeeze(1))
         tech_post_ab, a = self.tech_attention(tech_post.squeeze(1))
+        
         state_prob = torch.sigmoid(state_post_a.detach())
         group_prob = torch.sigmoid(group_post_a.detach())
         note_prob = torch.sigmoid(note_post_ab)
@@ -440,7 +441,6 @@ class UNet(nn.Module):
         device = self.device
         audio = batch['audio']
 
-        #gt_bin = batch['label'].shape[-2] # ground truth bin size
         if batch['label'].dim() == 2:
             label = batch['label'].unsqueeze(0)
         else:
@@ -450,10 +450,12 @@ class UNet(nn.Module):
         group_label = label[:, :, 3:7]
         note_label = label[:, :, 7:57]
         tech_label = label[:, :, 57:]
+        # state_label = label[:, :, 0].flatten()
+        # group_label = label[:, :, 1].flatten()
+        # note_label = label[:, :, 2].flatten()
+        # tech_label = label[:, :, 3].flatten()
         # technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
         # use the weight for the unbalanced tech label
-        # tech_criterion = nn.CrossEntropyLoss(weight=tech_weights, reduction='mean')
-        # tech_criterion = nn.BCEWithLogitsLoss(weight=self.weights, reduction='mean')
         state_weights = self.weights[0]
         group_weights = self.weights[1]
         tech_weights = self.weights[2]
@@ -537,10 +539,14 @@ class UNet(nn.Module):
         
         
         pred, post, latent = self(spec)
-        state_criterion = CrossEntropyLoss(0.05, 3)
-        group_criterion = CrossEntropyLoss(0.05, 4)
-        note_criterion = CrossEntropyLoss(0.05, 50)
-        tech_criterion = CrossEntropyLoss(0.05, 9)
+        # state_criterion = CrossEntropyLoss(0.05, 3)
+        # group_criterion = CrossEntropyLoss(0.05, 4)
+        # note_criterion = CrossEntropyLoss(0.05, 50)
+        # tech_criterion = CrossEntropyLoss(0.05, 9)
+        # state_criterion = nn.CrossEntropyLoss(weight=state_weights)
+        # group_criterion = nn.CrossEntropyLoss(weight=group_weights, ignore_index=0)
+        # note_criterion = nn.CrossEntropyLoss()
+        # tech_criterion = nn.CrossEntropyLoss(weight=tech_weights, ignore_index=0)
         if self.training:
             predictions = {
                     'note_state': pred[0].reshape(-1, 3),
@@ -551,14 +557,14 @@ class UNet(nn.Module):
                     }
             losses = {
                     #'loss/train_reconstruct_notepost': F.mse_loss(post[2], post[-1].detach()),
-                    # 'loss/train_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label, pos_weight=state_weights),
-                    # 'loss/train_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label, pos_weight=group_weights),
-                    # 'loss/train_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
-                    # 'loss/train_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label, pos_weight=tech_weights),
-                    'loss/train_state': state_criterion(pred[0], state_label),#, weight=state_weights),
-                    'loss/train_group': group_criterion(pred[1], group_label),#, weight=group_weights),
-                    'loss/train_note': note_criterion(pred[2], note_label),
-                    'loss/train_tech': tech_criterion(pred[3], tech_label),#, weight=tech_weights),
+                    'loss/train_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label, pos_weight=state_weights),
+                    'loss/train_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label, pos_weight=group_weights),
+                    'loss/train_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
+                    'loss/train_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label, pos_weight=tech_weights),
+                    # 'loss/train_state': 3 * state_criterion(pred[0].reshape(-1,3), state_label),#, weight=state_weights),
+                    # 'loss/train_group': 3 * group_criterion(pred[1].reshape(-1,4), group_label),#, weight=group_weights),
+                    # 'loss/train_note': note_criterion(pred[2].reshape(-1,50), note_label),
+                    # 'loss/train_tech': tech_criterion(pred[3].reshape(-1,9), tech_label),#, weight=tech_weights),
                     'loss/train_LDS_l': lds_l,
                     'loss/train_LDS_ul': lds_ul,
                     'loss/train_r_norm_l': r_norm_l.abs().mean(),
@@ -588,14 +594,14 @@ class UNet(nn.Module):
                     }                       
             losses = {
                     #'loss/test_reconstruct_notepost': F.mse_loss(post[2], post[-1].detach()),
-                    # 'loss/test_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label),
-                    # 'loss/test_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label),
-                    # 'loss/test_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
-                    # 'loss/test_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label),
-                    'loss/test_state': state_criterion(pred[0], state_label),
-                    'loss/test_group': group_criterion(pred[1], group_label),
-                    'loss/test_note': note_criterion(pred[2], note_label),
-                    'loss/test_tech': tech_criterion(pred[3], tech_label),
+                    'loss/test_state': F.binary_cross_entropy_with_logits(pred[0], state_label),
+                    'loss/test_group': F.binary_cross_entropy_with_logits(pred[1], group_label),
+                    'loss/test_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
+                    'loss/test_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label),
+                    # 'loss/test_state': state_criterion(pred[0].reshape(-1,3), state_label),
+                    # 'loss/test_group': group_criterion(pred[1].reshape(-1,4), group_label),
+                    # 'loss/test_note': note_criterion(pred[2].reshape(-1,50), note_label),
+                    # 'loss/test_tech': tech_criterion(pred[3].reshape(-1,9), tech_label),
                     'loss/test_LDS_l': lds_l,
                     'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                     }

@@ -36,6 +36,11 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
         group_label = val_data['label'][:,3:7].argmax(axis=1)
         note_label = val_data['label'][:,7:57].argmax(axis=1)
         tech_label = val_data['label'][:,57:].argmax(axis=1)
+        # val_data['label'] = val_data['label'].type(torch.LongTensor).cuda()
+        # state_label = val_data['label'][:,0]#.argmax(axis=1)
+        # group_label = val_data['label'][:,1]#.argmax(axis=1)
+        # note_label = val_data['label'][:,2]#.argmax(axis=1)
+        # tech_label = val_data['label'][:,3]#.argmax(axis=1)
         macro_note_label.extend(note_label)
         macro_state_label.extend(state_label)
         for key, loss in losses.items():

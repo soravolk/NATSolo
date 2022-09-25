@@ -19,12 +19,15 @@ def state2time(states):
 
 def get_transcription_and_cmx(labels, preds, ep, technique_dict):
     transcriptions = defaultdict(list)
-
+    labels = labels.type(torch.LongTensor).cuda()
     for i, (label, tech, note, note_state) in enumerate(zip(labels, preds['tech'], preds['note'], preds['note_state'])):
         # get label from one hot vectors
         state_label = label[:,:3].argmax(axis=1)
         note_label = label[:,7:57].argmax(axis=1)
-        tech_label = label[:,57:].argmax(axis=1)    
+        tech_label = label[:,57:].argmax(axis=1) 
+        # state_label = label[:,0]
+        # note_label = label[:,2]
+        # tech_label = label[:,3]
         
         tech_ref, tech_i_ref = extract_technique(tech_label) # (tech_label, state_label)
         tech_est, tech_i_est = extract_technique(tech.squeeze(0))
@@ -47,6 +50,7 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
     
     # get macro metrics
     tech_label = labels[:,:,57:].argmax(axis=2).flatten()
+    # tech_label = labels[:,:,3].flatten()
     tech_pred = preds['tech'].flatten()
     cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), tech_pred.cpu().numpy(), list(technique_dict.keys()))
 

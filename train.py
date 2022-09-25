@@ -69,7 +69,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_Smooth0.05NoWeight'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_SeparateNoteEncoderAndTechEncoder'
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -118,8 +118,8 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         group_post = post[1]
         note_post = post[2]
         tech_post = post[3]
-        state_latent = latent[0][:,1,:,:].squeeze(1)
-        group_latent = latent[1][:,1,:,:].squeeze(1)
+        state_group_latent = latent[0][:,1,:,:].squeeze(1)
+        note_tech_latent = latent[1][:,1,:,:].squeeze(1)
 
         # get transcriptions and confusion matrix
         transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict)
@@ -134,8 +134,8 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         plot_spec_and_post(writer, ep, tech_post_a, 'images/tech_post_a')
         plot_spec_and_post(writer, ep, note_post_ab, 'images/note_post_a_before')
         plot_spec_and_post(writer, ep, tech_post_ab, 'images/tech_post_a_before')
-        plot_spec_and_post(writer, ep, state_latent, 'images/state_latent')
-        plot_spec_and_post(writer, ep, group_latent, 'images/group_latent')
+        plot_spec_and_post(writer, ep, state_group_latent, 'images/state_group_latent')
+        plot_spec_and_post(writer, ep, note_tech_latent, 'images/note_tech_latent')
         plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
         # Show the transcription result in validation period
         print('Show the transcription result')

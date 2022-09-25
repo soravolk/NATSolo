@@ -179,7 +179,7 @@ class AudioDataset(Dataset):
         note_label_onehot = F.one_hot(note_label.to(torch.int64) - 51, num_classes=50)
         tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=9)
         label = torch.cat((note_state_label_onehot, tech_group_label_onehot, note_label_onehot, tech_label_onehot), 1)
-
+        # label = torch.cat((note_state_label.unsqueeze(1), tech_group_label.unsqueeze(1), (note_label - 51).unsqueeze(1), tech_label.unsqueeze(1)), 1)
         data = dict(path=audio_path, audio=audio, note_state_label=note_state_label, tech_group_label=tech_group_label, tech_label=tech_label, label=label)
         torch.save(data, saved_data_path)
         return data
