@@ -7,11 +7,15 @@ import numpy as np
 import torch
 from .constants import *
 
-def state2time(states):
+def state2time(states, notes):
     states = states.to(torch.int8).cpu()
+    notes = notes.to(torch.int8).cpu()
     scaling = HOP_LENGTH / SAMPLE_RATE
     onset_time = []
-    for i, s in enumerate(states):
+    for i, (s, n) in enumerate(zip(states, notes)):
+        # if s == n and n != 0:
+        #     if i + 1 < len(states) and states[i + 1] != n:
+        #         onset_time.append(i)
         if s == 1:
             if i + 1 < len(states) and states[i + 1] != 1:
                 onset_time.append(i)
@@ -22,9 +26,14 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
     labels = labels.type(torch.LongTensor).cuda()
     for i, (label, tech, note, note_state) in enumerate(zip(labels, preds['tech'], preds['note'], preds['note_state'])):
         # get label from one hot vectors
-        state_label = label[:,:3].argmax(axis=1)
-        note_label = label[:,7:57].argmax(axis=1)
-        tech_label = label[:,57:].argmax(axis=1) 
+        state_label = label[:,:2].argmax(axis=1)
+        note_label = label[:,6:56].argmax(axis=1)
+        tech_label = label[:,56:].argmax(axis=1)
+        ######## for state of size 50 ########
+        # state_label = label[:,:50].argmax(axis=1)
+        # note_label = label[:,54:104].argmax(axis=1)
+        # tech_label = label[:,104:].argmax(axis=1)
+
         # state_label = label[:,0]
         # note_label = label[:,2]
         # tech_label = label[:,3]
@@ -34,22 +43,22 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
 
         midi_path = os.path.join('midi', f'song{i}_ep{ep}.midi')
         gt_midi_path = os.path.join('midi', f'gt_song{i}.midi')
-        note_ref, note_i_ref = extract_notes(note_label, state_label, midi=True, path=gt_midi_path)
-        note_est, note_i_est = extract_notes(note, note_state, midi=True, path=midi_path)
+        note_ref, note_i_ref = extract_notes(note_label, state_label, midi=True, path=gt_midi_path) #state_label
+        note_est, note_i_est = extract_notes(note, note_state, midi=True, path=midi_path) #note_state
 
         transcriptions['tech_gt'].append(tech_ref)
         transcriptions['tech_interval_gt'].append(tech_i_ref)
         transcriptions['note_gt'].append(note_ref + LOGIC_MIDI)
         transcriptions['note_interval_gt'].append(note_i_ref)
-        transcriptions['state_gt'].append(state2time(state_label))
+        transcriptions['state_gt'].append(state2time(state_label, note_label))
         transcriptions['tech'].append(tech_est)
         transcriptions['tech_interval'].append(tech_i_est)
         transcriptions['note'].append(note_est + LOGIC_MIDI)
         transcriptions['note_interval'].append(note_i_est)
-        transcriptions['state'].append(state2time(note_state))
+        transcriptions['state'].append(state2time(note_state, note))
     
     # get macro metrics
-    tech_label = labels[:,:,57:].argmax(axis=2).flatten()
+    tech_label = labels[:,:,56:].argmax(axis=2).flatten()
     # tech_label = labels[:,:,3].flatten()
     tech_pred = preds['tech'].flatten()
     cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), tech_pred.cpu().numpy(), list(technique_dict.keys()))
@@ -88,22 +97,47 @@ def get_confusion_matrix(correct_labels, predict_labels, labels):
     cm_precision:
     """
     cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
-    cm_new = []
-    for i in range(len(cm)):
-        if i == 0:
-            continue
-        cm_new.append(cm[i][1:])
-    cm_new = np.reshape(cm_new, (len(labels)-1, len(labels)-1))
 
-    cm_recall, cm_precision = get_prec_recall(cm_new)
+    cm_recall, cm_precision = get_prec_recall(cm)
 
     cm_dict = {
-        'cm': cm_new,
+        'cm': cm,
         'Precision': cm_precision,
         'Recall': cm_recall,
     }
 
     return cm_dict
+
+# def get_confusion_matrix(correct_labels, predict_labels, labels):
+#     """
+#     Generate confusion matrix, recall and precision
+#     Parameters
+#     ----------
+#     correct_labels: 
+#     predict_labels: 
+#     Returns
+#     -------
+#     cm: 
+#     cm_recall:
+#     cm_precision:
+#     """
+#     cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
+#     cm_new = []
+#     for i in range(len(cm)):
+#         if i == 0:
+#             continue
+#         cm_new.append(cm[i][1:])
+#     cm_new = np.reshape(cm_new, (len(labels)-1, len(labels)-1))
+
+#     cm_recall, cm_precision = get_prec_recall(cm_new)
+
+#     cm_dict = {
+#         'cm': cm_new,
+#         'Precision': cm_precision,
+#         'Recall': cm_recall,
+#     }
+
+#     return cm_dict
 
 def evaluate_frame_accuracy(correct_labels, predict_labels):
     matched = 0
@@ -260,6 +294,24 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
         onset = False
         total = len(notes)
         for i, (note, state) in enumerate(zip(notes, states)):
+            ########## for state of size 50 ##########
+            # if onset == False and state == note and note != 0:
+            #     onset = True
+            #     start = i
+            #     onset_note = note
+
+            # if onset:
+            #     if (i + 1) < total:
+            #         if state != note and states[i + 1] == notes[i + 1]:
+            #             onset = False
+            #             if start != i:
+            #                 pitches.append(onset_note)
+            #                 intervals.append([start, i])
+            #     else:
+            #         if start != i:
+            #             pitches.append(onset_note)
+            #             intervals.append([start, i])
+            ########## for state of size 3 ##########
             # assume one onset does not follow another onset
             if onset == False and state == 1 and note != 0:
                 onset = True
@@ -277,31 +329,6 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
                     if start != i:
                         pitches.append(onset_note)
                         intervals.append([start, i])
-        '''
-        states = states.to(torch.int8).cpu()
-        # a valid note must come with the onset state
-        onset = False
-        total = len(notes)
-        for i, (note, state) in enumerate(zip(notes, states)):
-            # assume one onset does not follow another onset
-            if onset == False and state == 1:
-                onset = True
-                start = i
-                ons     et_note = note
-
-            if onset:
-                if state != 0:
-                    if (i + 1) < total and states[i] == 2 and states[i + 1] == 1:
-                        onset = False
-                        pitches.append(onset_note)
-                        intervals.append([start, i - 0.1])
-                    else:
-                        continue
-                else:
-                    onset = False
-                    pitches.append(onset_note)
-                    intervals.append([start, i - 0.1])
-        '''
 
     scaling = HOP_LENGTH / SAMPLE_RATE
     if scale2time and midi:

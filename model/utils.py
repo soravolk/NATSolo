@@ -65,7 +65,7 @@ def plot_spec_and_post(writer, ep, source, figname):
     fig, axs = plt.subplots(2, 2, figsize=(24,8))
     axs = axs.flat
     for idx, i in enumerate(source):
-        axs[idx].imshow(np.flip(i.transpose(), 0))
+        axs[idx].imshow(np.flip(i.transpose(), 0), cmap='plasma')
         axs[idx].axis('off')
     fig.tight_layout()
     writer.add_figure(figname, fig , ep)
@@ -171,6 +171,7 @@ def plot_confusion_matrix(cm, writer, ep, title='Prediction', tensor_name = 'MyF
         - Currently, some of the ticks dont line up due to rotations.
     '''
     technique_dict = {
+        0: 'no tech',
         1: 'slide',
         2: 'bend',
         3: 'trill',

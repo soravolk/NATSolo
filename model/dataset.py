@@ -128,6 +128,7 @@ class AudioDataset(Dataset):
         tech_group_label = torch.zeros(all_steps, dtype=torch.int8)
         tech_label = torch.zeros(all_steps, dtype=torch.int8)
         note_state_label = torch.zeros(all_steps, dtype=torch.int8)
+        # note_state_label = torch.ones(all_steps, dtype=torch.int8) * 51
         note_label = torch.ones(all_steps, dtype=torch.int8) * 51
 
         # load labels(start, duration, techniques)
@@ -164,16 +165,23 @@ class AudioDataset(Dataset):
 
             if left + 3 > right:
                 note_state_label[left: right - 1] = 1
-                note_state_label[right - 1] = 0
+                # note_state_label[right - 1] = 0
             else:
                 note_state_label[left: left + 4] = 1 # onset
-                note_state_label[left + 4: right - 2] = 2 # activate
-                note_state_label[right - 2: right] = 0
+                # note_state_label[left + 4: right - 2] = 2 # activate
+                # note_state_label[right - 2: right] = 0
+            # if left - 1 > 0:
+            #     note_state_label[left-1] = 1
+            # if left + 3 > right:
+            #     note_state_label[left: right] = note
+            # else:
+            #     note_state_label[left: left + 4] = note # onset
 
             note_label[left:right] = note
         
         ##### concat all one-hot label #####
-        note_state_label_onehot = F.one_hot(note_state_label.to(torch.int64), num_classes=3)
+        note_state_label_onehot = F.one_hot(note_state_label.to(torch.int64), num_classes=2)
+        # note_state_label_onehot = F.one_hot(note_state_label.to(torch.int64) - 51, num_classes=50)
         tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=4)
         # 0 % 51 = 0 means no note (the lowest note is 52)
         note_label_onehot = F.one_hot(note_label.to(torch.int64) - 51, num_classes=50)
@@ -258,10 +266,11 @@ def compute_dataset_weight(device):
         y_3.extend(data['tech_label'].detach().cpu().numpy())
     tech_group_weights = compute_class_weight('balanced', np.unique(y_1), y_1)
     tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
+    # note_state_weights = None
     note_state_weights = compute_class_weight('balanced', np.unique(y_2), y_2)
     note_state_weights = torch.tensor(note_state_weights, dtype=torch.float).to(device)
-    note_state_weights[1] = 4 * note_state_weights[1] # weight more for onset
-    note_state_weights[2] = 2 * note_state_weights[2]
+    # note_state_weights[1] = 4 * note_state_weights[1] # weight more for onset
+    # note_state_weights[2] = 2 * note_state_weights[2]
     tech_weights = compute_class_weight('balanced', np.unique(y_3), y_3)
     tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
 
