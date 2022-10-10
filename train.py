@@ -70,7 +70,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_OneDecoderNotePostAndGroupPostRemoveL2'
+    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_UseMidStateAndGroupAttentionDropout0And0.5DropoutAfterFCAndFrameLevelMetricsAndSaveModel'
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -92,7 +92,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction)
+            mertics, cm_dict_all = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -115,15 +115,17 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         tech_post_a = post_a[3]
         note_post_ab = post_a[4]
         tech_post_ab = post_a[5]
+        state_post_ab = post_a[6]
+        group_post_ab = post_a[7]
         state_post = post[0]
         group_post = post[1]
         note_post = post[2]
         tech_post = post[3]
-        # state_group_latent = latent[0][:,1,:,:].squeeze(1)
-        # note_tech_latent = latent[1][:,1,:,:].squeeze(1)
-        state_latent = latent[0][:,1,:,:].squeeze(1)
-        note_group_latent = latent[1][:,1,:,:].squeeze(1)
-        tech_latent = latent[2][:,1,:,:].squeeze(1)
+        state_group_latent = latent[0][:,1,:,:].squeeze(1)
+        note_tech_latent = latent[1][:,1,:,:].squeeze(1)
+        # state_latent = latent[0][:,1,:,:].squeeze(1)
+        # note_group_latent = latent[1][:,1,:,:].squeeze(1)
+        # tech_latent = latent[2][:,1,:,:].squeeze(1)
 
         # get transcriptions and confusion matrix
         transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict)
@@ -138,11 +140,13 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         plot_spec_and_post(writer, ep, tech_post_a, 'images/tech_post_a')
         plot_spec_and_post(writer, ep, note_post_ab, 'images/note_post_a_before')
         plot_spec_and_post(writer, ep, tech_post_ab, 'images/tech_post_a_before')
-        # plot_spec_and_post(writer, ep, state_group_latent, 'images/state_group_latent')
-        # plot_spec_and_post(writer, ep, note_tech_latent, 'images/note_tech_latent')
-        plot_spec_and_post(writer, ep, state_latent, 'images/state_latent')
-        plot_spec_and_post(writer, ep, note_group_latent, 'images/note_group_latent')
-        plot_spec_and_post(writer, ep, tech_latent, 'images/tech_latent')
+        plot_spec_and_post(writer, ep, state_post_ab, 'images/state_post_mid')
+        plot_spec_and_post(writer, ep, group_post_ab, 'images/group_post_mid')
+        plot_spec_and_post(writer, ep, state_group_latent, 'images/state_group_latent')
+        plot_spec_and_post(writer, ep, note_tech_latent, 'images/note_tech_latent')
+        # plot_spec_and_post(writer, ep, state_latent, 'images/state_latent')
+        # plot_spec_and_post(writer, ep, note_group_latent, 'images/note_group_latent')
+        # plot_spec_and_post(writer, ep, tech_latent, 'images/tech_latent')
         plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
         # Show the transcription result in validation period
         print('Show the transcription result')
@@ -156,8 +160,10 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
             if output_key in cm_dict.keys():
                 if output_key in ['cm', 'cm_2']:
                     plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', 'd', 10)
+                    plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', 'd', 10)
                 else:
-                    plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)    
+                    plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)  
+                    plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', '.2f', 6)  
 
         # # show adversarial samples    
         # print('adversarial samples')
@@ -180,7 +186,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
     if ep%(2 * logging_freq) == 0:
         # test on training set
         with torch.no_grad():
-            mertics = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction)
+            mertics, _ = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction)
             for key, values in mertics.items():
                 if key.startswith('metric/'):
                     _, _, name = key.split('/')
@@ -273,7 +279,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
                     mode=mode, spec=spec, device=device, XI=XI, eps=eps, weights=bce_weights)
     model.to(device)
     if resume_iteration is None:  
-        optimizer = torch.optim.Adam(model.parameters(), learning_rate)#, weight_decay=weight_decay)
+        optimizer = torch.optim.Adam(model.parameters(), learning_rate,  weight_decay=weight_decay) #eps=1e-06
         resume_iteration = 0
     else: # Loading checkpoints and continue training
         model_path = os.path.join('checkpoint', f'{resume_iteration}.pt')
@@ -307,9 +313,9 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
                             True, VAT_start, reconstruction)            
 
         # Saving model
-        # if (ep)%saving_freq == 0:
-        #     torch.save(model.state_dict(), os.path.join('checkpoint', f'model-{ep}.pt'))
-        #     torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
+        if ep > 2000 and (ep)%logging_freq == 0:
+            torch.save(model.state_dict(), os.path.join('checkpoint', f'model-{ep}.pt'))
+            torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
         
         for key, values in train_losses.items():
             if key.startswith('loss/'):

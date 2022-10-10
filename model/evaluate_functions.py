@@ -102,17 +102,26 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             # temp_metrics['metric/tech/overlap'].append(to)
 
             ############ get note and interval ############ 
-            note_ref, note_i_ref = extract_notes(note_label, state_label)
-            note_est, note_i_est = extract_notes(pred['note'], pred['note_state'])
-
+            note_ref, note_i_ref, org_note_ref, org_note_i_ref = extract_notes(note_label, state_label)
+            note_est, note_i_est, org_note_est, org_note_i_est = extract_notes(pred['note'], pred['note_state'])
+            note_t_ref, note_f_ref = notes_to_frames(org_note_ref, org_note_i_ref, note_label.shape)
+            note_t_est, note_f_est = notes_to_frames(org_note_est, org_note_i_est, pred['note'].shape)
             ############ evaluate notes ############
-            acc = evaluate_frame_accuracy(note_label, pred['note']) # frame level
+            # frame level acc
+            acc = evaluate_frame_accuracy(note_label, pred['note']) 
+            # note level p, r, f1
             p, r, f, o = evaluate_notes(note_i_ref, note_ref, note_i_est, note_est, strict=False, offset_ratio=None)
             temp_metrics['metric/note/accuracy'].append(acc)
             temp_metrics['metric/note/precision'].append(p)
             temp_metrics['metric/note/recall'].append(r)
             temp_metrics['metric/note/f1'].append(f)
             temp_metrics['metric/note/overlap'].append(o)
+            # frame level p, r, f1
+            frame_metrics = evaluate_frames(note_t_ref, note_f_ref, note_t_est, note_f_est)
+            temp_metrics['metric/note/precision_frame'].append(frame_metrics['Precision'])
+            temp_metrics['metric/note/recall_frame'].append(frame_metrics['Recall'])
+            temp_metrics['metric/note/f1_frame'].append(hmean([frame_metrics['Precision'] + eps, frame_metrics['Recall'] + eps]) - eps)
+            
             # get note accuracy
             acc = evaluate_frame_accuracy_per_tech(tech_label, note_label, pred['note'])
             for key, value in technique_dict.items():
@@ -135,6 +144,9 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
         metrics['metric/note/recall'].append(sum(temp_metrics['metric/note/recall']) / iteration)
         metrics['metric/note/f1'].append(sum(temp_metrics['metric/note/f1']) / iteration)
         metrics['metric/note/overlap'].append(sum(temp_metrics['metric/note/overlap']) / iteration)
+        metrics['metric/note/precision_frame'].append(sum(temp_metrics['metric/note/precision_frame']) / iteration)
+        metrics['metric/note/recall_frame'].append(sum(temp_metrics['metric/note/recall_frame']) / iteration)
+        metrics['metric/note/f1_frame'].append(sum(temp_metrics['metric/note/f1_frame']) / iteration)
 
         if save_path is not None:
             os.makedirs(save_path, exist_ok=True)
@@ -144,7 +156,7 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             save_pianoroll(pred_path, pred['technique'])
     
     ############ get the macro recall and precision of technique s############ 
-    macro_precision, macro_recall = get_prec_recall(macro_cm)
+    macro_recall, macro_precision  = get_prec_recall(macro_cm)
     for key, value in technique_dict.items():
         # if key == 0:
         #     continue
@@ -157,16 +169,28 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
     ############ get macro note metrics ############
     macro_note_label = torch.tensor(macro_note_label)
     macro_note_pred = torch.tensor(macro_note_pred)
-    macro_note_ref, macro_note_i_ref = extract_notes(macro_note_label, torch.tensor(macro_state_label))
-    macro_note_est, macro_note_i_est = extract_notes(macro_note_pred, torch.tensor(macro_state_pred))
+    macro_note_ref, macro_note_i_ref, org_note_ref, org_note_i_ref = extract_notes(macro_note_label, torch.tensor(macro_state_label))
+    macro_note_est, macro_note_i_est, org_note_est, org_note_i_est = extract_notes(macro_note_pred, torch.tensor(macro_state_pred))
+    note_t_ref, note_f_ref = notes_to_frames(org_note_ref, org_note_i_ref, macro_note_label.shape)
+    note_t_est, note_f_est = notes_to_frames(org_note_est, org_note_i_est, macro_note_pred.shape)
+    
     acc = evaluate_frame_accuracy(macro_note_label, macro_note_pred) # frame level
     p, r, f, o = evaluate_notes(macro_note_i_ref, macro_note_ref, macro_note_i_est, macro_note_est, offset_ratio=None)
     metrics['metric/note/accuracy_macro'].append(acc)
     metrics['metric/note/precision_macro'].append(p)
     metrics['metric/note/recall_macro'].append(r)
     metrics['metric/note/f1_macro'].append(f)
-    
-    return metrics#, val_loss
+
+    frame_metrics = evaluate_frames(note_t_ref, note_f_ref, note_t_est, note_f_est)
+    metrics['metric/note/precision_frame_macro'].append(frame_metrics['Precision'])
+    metrics['metric/note/recall_frame_macro'].append(frame_metrics['Recall'])
+    metrics['metric/note/f1_frame_macro'].append(hmean([frame_metrics['Precision'] + eps, frame_metrics['Recall'] + eps]) - eps)
+
+    cm_dict_all = {}
+    cm_dict_all['cm'] = macro_cm
+    cm_dict_all['Precision'] = macro_precision
+    cm_dict_all['Recall'] = macro_recall
+    return metrics, cm_dict_all#, val_loss
 
 def eval_model(model, ep, loader, VAT_start=0, VAT=False):
     model.eval()

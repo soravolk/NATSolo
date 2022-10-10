@@ -43,8 +43,8 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
 
         midi_path = os.path.join('midi', f'song{i}_ep{ep}.midi')
         gt_midi_path = os.path.join('midi', f'gt_song{i}.midi')
-        note_ref, note_i_ref = extract_notes(note_label, state_label, midi=True, path=gt_midi_path) #state_label
-        note_est, note_i_est = extract_notes(note, note_state, midi=True, path=midi_path) #note_state
+        note_ref, note_i_ref, _, _ = extract_notes(note_label, state_label, midi=True, path=gt_midi_path) #state_label
+        note_est, note_i_est, _, _ = extract_notes(note, note_state, midi=True, path=midi_path) #note_state
 
         transcriptions['tech_gt'].append(tech_ref)
         transcriptions['tech_interval_gt'].append(tech_i_ref)
@@ -146,18 +146,18 @@ def evaluate_frame_accuracy(correct_labels, predict_labels):
             matched += 1
     return matched / len(correct_labels)
 
-def evaluate_frame_accuracy_per_tech(tech, correct_labels, predict_labels):
+def evaluate_frame_accuracy_per_tech(techniques, correct_labels, predict_labels):
     
     accuracy_per_tech = torch.zeros(9, 2) # [[# note, # ac note], [], ... ]
     accuracy = torch.zeros(9)
-    for tech, ref, est in zip(tech, correct_labels, predict_labels):
+    for tech, ref, est in zip(techniques, correct_labels, predict_labels):
         accuracy_per_tech[tech][0] += 1
         if ref == est:
             accuracy_per_tech[tech][1] += 1
     
     for i in range(len(accuracy_per_tech)):
         # accuracy
-        accuracy[i] = accuracy_per_tech[i][1] / accuracy_per_tech[i][0]
+        accuracy[i] = (accuracy_per_tech[i][1] / accuracy_per_tech[i][0]) if accuracy_per_tech[i][0] != 0 else 0
     
     return accuracy
 
@@ -294,24 +294,6 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
         onset = False
         total = len(notes)
         for i, (note, state) in enumerate(zip(notes, states)):
-            ########## for state of size 50 ##########
-            # if onset == False and state == note and note != 0:
-            #     onset = True
-            #     start = i
-            #     onset_note = note
-
-            # if onset:
-            #     if (i + 1) < total:
-            #         if state != note and states[i + 1] == notes[i + 1]:
-            #             onset = False
-            #             if start != i:
-            #                 pitches.append(onset_note)
-            #                 intervals.append([start, i])
-            #     else:
-            #         if start != i:
-            #             pitches.append(onset_note)
-            #             intervals.append([start, i])
-            ########## for state of size 3 ##########
             # assume one onset does not follow another onset
             if onset == False and state == 1 and note != 0:
                 onset = True
@@ -331,6 +313,8 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
                         intervals.append([start, i])
 
     scaling = HOP_LENGTH / SAMPLE_RATE
+    org_pitches = np.array(pitches)
+    org_intervals = np.array(intervals)
     if scale2time and midi:
         intervals = (np.array(intervals) * scaling).reshape(-1, 2)
         save_midi(path, np.array(pitches), intervals)
@@ -340,8 +324,32 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
         # converting midi number to frequency
         pitches = np.array([midi_to_hz(MIN_MIDI + midi) for midi in pitches])
 
-    
-    return pitches, intervals
+    return pitches, intervals, org_pitches, org_intervals
+
+def notes_to_frames(pitches, intervals, shape):
+    """
+    Takes lists specifying notes sequences and return
+    Parameters
+    ----------
+    pitches: list of pitch bin indices
+    intervals: list of [onset, offset] ranges of bin indices
+    shape: the shape of the original piano roll, [n_frames, n_bins]
+    Returns
+    -------
+    time: np.ndarray containing the frame indices
+    freqs: list of np.ndarray, each containing the frequency bin indices
+    """
+    scaling = HOP_LENGTH / SAMPLE_RATE
+    roll = np.zeros((shape[0], 50))
+    for pitch, (onset, offset) in zip(pitches, intervals):
+        roll[onset: offset, pitch] = 1
+
+    time = np.arange(roll.shape[0])
+    freqs = [roll[t, :].nonzero()[0] for t in time]
+
+    time = (np.array(time) * scaling)
+    freqs = np.array([midi_to_hz(MIN_MIDI + midi) for midi in freqs])
+    return time, freqs
 
 def save_midi(path, pitches, intervals):
     """
