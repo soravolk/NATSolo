@@ -301,9 +301,11 @@ class Spec2Roll(nn.Module):
         # self.tech_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)
         self.mid_state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0)
         self.mid_group_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0)
-        self.state_fc = nn.Linear(50, 2)
-        self.group_fc = nn.Linear(50, 4)
-        self.dropout = nn.Dropout(0.5)
+        self.state_attention = Stack(input_size=50, hidden_dim=768, attn_size=31, attn_group=6, output_dim=2, dropout=0.5)
+        self.group_attention = Stack(input_size=50, hidden_dim=768, attn_size=31, attn_group=6, output_dim=4, dropout=0.5)
+        # self.state_fc = nn.Linear(50, 2)
+        # self.group_fc = nn.Linear(50, 4)
+        # self.dropout = nn.Dropout(0.5)
 
         # self.lstm1 = MutliHeadAttention1D(N_BINS, N_BINS*complexity, 31, position=True, groups=complexity)
         # stack = attention + fc
@@ -345,8 +347,10 @@ class Spec2Roll(nn.Module):
         # group_post_a, a = self.group_attention(group_post.squeeze(1))
         state_post_ab, a = self.mid_state_attention(state_post.squeeze(1))
         group_post_ab, a = self.mid_group_attention(group_post.squeeze(1))
-        state_post_a = self.dropout(self.state_fc(state_post_ab))
-        group_post_a = self.dropout(self.group_fc(group_post_ab))
+        state_post_a, _ = self.state_attention(state_post_ab)
+        group_post_a, _ = self.group_attention(group_post_ab)
+        # state_post_a = self.dropout(self.state_fc(state_post_ab))
+        # group_post_a = self.dropout(self.group_fc(group_post_ab))
 
         note_post_ab, a = self.note_attention(note_post.squeeze(1))
         tech_post_ab, a = self.tech_attention(tech_post.squeeze(1))
@@ -552,9 +556,10 @@ class UNet(nn.Module):
         # tech_label = label[:, :, 3].flatten()
         # technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
         # use the weight for the unbalanced tech label
-        state_weights = self.weights[0]
-        group_weights = self.weights[1]
-        tech_weights = self.weights[2]
+        if self.weights is not None:
+            state_weights = self.weights[0]
+            group_weights = self.weights[1]
+            tech_weights = self.weights[2]
         #####################for unlabelled audio###########################
         # do VAT for unlabelled audio
         if batch_ul:
@@ -669,10 +674,11 @@ class UNet(nn.Module):
                     }
             return predictions, losses
         else:
-            state_pred = torch.sigmoid(pred[0])
-            group_pred = torch.sigmoid(pred[1])
-            note_pred = torch.sigmoid(pred[2])
-            tech_pred = torch.sigmoid(pred[3])
+            bins = state_label.shape[-2]   
+            state_pred = torch.sigmoid(pred[0])[:,:bins,:]
+            group_pred = torch.sigmoid(pred[1])[:,:bins,:]
+            note_pred = torch.sigmoid(pred[2])[:,:bins,:]
+            tech_pred = torch.sigmoid(pred[3])[:,:bins,:]
             # state_pred = softmax(pred[0])
             # group_pred = softmax(pred[1])
             # note_pred = softmax(pred[2])
@@ -686,20 +692,20 @@ class UNet(nn.Module):
                 else:
                     state.append(s.argmax())
             state_pred = torch.tensor(state)
+            print('===========', state_pred.shape)
             predictions = {
-                    'note_state': state_pred.reshape(-1, spec.shape[-2]),
+                    'note_state': state_pred.reshape(-1, bins),
                     # 'note_state': state_pred.reshape(-1, 2).argmax(axis=1).reshape(-1, spec.shape[-2]),
-                    'tech_group': group_pred.reshape(-1, 4).argmax(axis=1).reshape(-1, spec.shape[-2]),
-                    'note': note_pred.reshape(-1, 50).argmax(axis=1).reshape(-1, spec.shape[-2]),
-                    'tech': tech_pred.reshape(-1, 9).argmax(axis=1).reshape(-1, spec.shape[-2]),
+                    'tech_group': group_pred.reshape(-1, 4).argmax(axis=1).reshape(-1, bins),
+                    'note': note_pred.reshape(-1, 50).argmax(axis=1).reshape(-1, bins),
+                    'tech': tech_pred.reshape(-1, 9).argmax(axis=1).reshape(-1, bins),
                     'r_adv': r_adv,
-                    }                       
+                    }      
             losses = {
-                    #'loss/test_reconstruct_notepost': F.mse_loss(post[2], post[-1].detach()),
-                    'loss/test_state': F.binary_cross_entropy_with_logits(pred[0], state_label),
-                    'loss/test_group': F.binary_cross_entropy_with_logits(pred[1], group_label),
-                    'loss/test_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
-                    'loss/test_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label),
+                    'loss/test_state': F.binary_cross_entropy_with_logits(pred[0][:,:bins,:], state_label),
+                    'loss/test_group': F.binary_cross_entropy_with_logits(pred[1][:,:bins,:], group_label),
+                    'loss/test_note': F.binary_cross_entropy_with_logits(pred[2][:,:bins,:], note_label),
+                    'loss/test_tech': F.binary_cross_entropy_with_logits(pred[3][:,:bins,:], tech_label),
                     # 'loss/test_state': state_criterion(pred[0].reshape(-1,50), state_label.reshape(-1,50)),
                     # 'loss/test_group': group_criterion(pred[1].reshape(-1,4), group_label.reshape(-1,4).argmax(axis=-1)),
                     # 'loss/test_note': note_criterion(pred[2].reshape(-1,50), note_label.reshape(-1,50).argmax(axis=-1)),

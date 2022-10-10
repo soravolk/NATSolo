@@ -51,7 +51,8 @@ class AudioDataset(Dataset):
               result['label'] = data['label'][step_begin:step_end].to(self.device).float()
             result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15 -> Dont know why
         else:
-            # result['audio'] = data['audio'].to(self.device)
+            result['audio'] = data['audio'].to(self.device).float().div_(32768.0)
+            result['label'] = data['label'].to(self.device).float()
             result['tech_group_label'] = data['tech_group_label'].to(self.device).float()
             result['note_state_label'] = data['note_state_label'].to(self.device).float()
             result['tech_label'] = data['tech_label'].to(self.device).float()

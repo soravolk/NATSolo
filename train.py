@@ -70,7 +70,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/recons={reconstruction}-VAT={VAT}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_UseMidStateAndGroupAttentionDropout0And0.5DropoutAfterFCAndFrameLevelMetricsAndSaveModel'
+    logdir = f'{root}/lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_UseMidStateAndGroupAttentionDropout0FollowedByAttentionWith0.5Dropout'
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -92,8 +92,8 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            mertics, cm_dict_all = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction)
-            for key, values in mertics.items():
+            metrics, cm_dict_all = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction)
+            for key, values in metrics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
                     # show metrics on terminal
@@ -186,8 +186,8 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
     if ep%(2 * logging_freq) == 0:
         # test on training set
         with torch.no_grad():
-            mertics, _ = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction)
-            for key, values in mertics.items():
+            metrics, _ = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction)
+            for key, values in metrics.items():
                 if key.startswith('metric/'):
                     _, _, name = key.split('/')
                     if name in ['accuracy', 'precision', 'recall', 'f1']:

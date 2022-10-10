@@ -7,3 +7,4 @@ midi/
 .DS_store
 checkpoint
 model/yolo_exp/yolox/models/yolox_s.pth
+testing

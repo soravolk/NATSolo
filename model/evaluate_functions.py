@@ -14,24 +14,29 @@ from .utils import save_pianoroll
 
 eps = sys.float_info.epsilon    
 
-def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconstruction=True):
+def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconstruction=True, testing=False):
     metrics = defaultdict(list) # a safe dict
     macro_cm = None
-    macro_note_pred = []
-    macro_state_pred = []
     macro_note_label = []
     macro_state_label = []
+    macro_note_pred = []
+    macro_state_pred = []
     val_loss = None
     if len(data) > 5:
         iteration = 1
     else:
         iteration = 5
         
+    if testing:
+        inference = defaultdict(list)
+        specs = []
+        probs = []
+
     for val_data in tqdm(data):
         total_loss = 0
         temp_metrics = defaultdict(list)
         for i in range(iteration):
-            pred, losses, _, _, _, _ = model.run_on_batch(val_data, None, False)
+            pred, losses, spec, prob, _, _ = model.run_on_batch(val_data, None, False)
             # if val_loss is None:
             #     val_loss = defaultdict(list)
             #     for key, value in {**losses}.items():
@@ -62,9 +67,13 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
                 if key in ['tech', 'note']:
                     value.relu_() # value.shape [232, 10]
 
+            pred['note'].squeeze_(0)
+            #print(pred['note'])
+            pred['note_state'].squeeze_(0)
+            pred['tech'].squeeze_(0)
             ############ evaluate techniques ############
             # get the confusion matrix
-            cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].squeeze(0).cpu().numpy(), list(technique_dict.keys()))
+            cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].cpu().numpy(), list(technique_dict.keys()))
             # sum up macro confusion matrix
             if i == 0:
                 if macro_cm is None:
@@ -80,20 +89,24 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
                 temp_metrics[f'metric/{value}/recall'].append(r)
                 temp_metrics[f'metric/{value}/f1'].append(f)
 
-            # find the technique timings
-            # groundtruth: val_data['technique'].shape [232]
-
-            pred['note'].squeeze_(0)
-            #print(pred['note'])
-            pred['note_state'].squeeze_(0)
+            # get techinique and interval
+            tech_ref, tech_i_ref = extract_technique(tech_label, scale2time=True) # (tech_label, state_label)
+            tech_est, tech_i_est = extract_technique(pred['tech'], scale2time=True) # (pred['tech'], pred['note_state'])
+            
             if i == 0:
                 macro_note_label.extend(note_label)
                 macro_state_label.extend(state_label)
                 macro_note_pred.extend(pred['note'])
                 macro_state_pred.extend(pred['note_state'])
-            # get techinique and interval
-            tech_ref, tech_i_ref = extract_technique(tech_label, scale2time=True) # (tech_label, state_label)
-            tech_est, tech_i_est = extract_technique(pred['tech'].squeeze(0), scale2time=True) # (pred['tech'], pred['note_state'])
+                if testing:
+                    inference['testing_note_label'].append(note_label)
+                    inference['testing_state_label'].append(state_label)
+                    inference['testing_tech_label'].append(tech_label)
+                    inference['testing_note_pred'].append(pred['note'])
+                    inference['testing_state_pred'].append(pred['note_state'])
+                    inference['testing_tech_pred'].append(pred['tech'])
+                    specs.append(spec[0].squeeze(0).cpu().numpy())
+                    probs.append((prob[4].squeeze(0).cpu().numpy(), prob[2].squeeze(0).cpu().numpy())) # note_prob, note_prob passed to attention with state
             ############ evaluate techniques ############
             # tp, tr, tf, to = evaluate_notes(tech_i_ref, tech_ref, tech_i_est, tech_est, strict=False, offset_ratio=None, pitch_tolerance=0)
             # temp_metrics['metric/tech/precision'].append(tp)
@@ -148,12 +161,12 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
         metrics['metric/note/recall_frame'].append(sum(temp_metrics['metric/note/recall_frame']) / iteration)
         metrics['metric/note/f1_frame'].append(sum(temp_metrics['metric/note/f1_frame']) / iteration)
 
-        if save_path is not None:
-            os.makedirs(save_path, exist_ok=True)
-            file_path = os.path.join(save_path, os.path.basename(val_data['path']) + '.file.png')
-            save_pianoroll(file_path, val_data['technique'])
-            pred_path = os.path.join(save_path, os.path.basename(val_data['path']) + '.pred.png')
-            save_pianoroll(pred_path, pred['technique'])
+        # if save_path is not None:
+            # os.makedirs(save_path, exist_ok=True)
+            # file_path = os.path.join(save_path, os.path.basename(val_data['path']) + '.file.png')
+            # save_pianoroll(file_path, val_data['technique'])
+            # pred_path = os.path.join(save_path, os.path.basename(val_data['path']) + '.pred.png')
+            # save_pianoroll(pred_path, pred['technique'])
     
     ############ get the macro recall and precision of technique s############ 
     macro_recall, macro_precision  = get_prec_recall(macro_cm)
@@ -190,7 +203,10 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
     cm_dict_all['cm'] = macro_cm
     cm_dict_all['Precision'] = macro_precision
     cm_dict_all['Recall'] = macro_recall
-    return metrics, cm_dict_all#, val_loss
+    if not testing:
+        return metrics, cm_dict_all #, val_loss
+    else:
+        return metrics, cm_dict_all, inference, specs, probs
 
 def eval_model(model, ep, loader, VAT_start=0, VAT=False):
     model.eval()

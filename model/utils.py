@@ -156,12 +156,12 @@ def plot_transcription(writer, ep, figname, mel, note_interval, note, tech_inter
 #     # another representation of transcription
 #     plot_transcription_B(writer, ep, figname, mel, note_interval, note, tech_interval, tech)
 
-def plot_confusion_matrix(cm, writer, ep, title='Prediction', tensor_name = 'MyFigure/image', dtype='d', fontsize=20):
+def plot_confusion_matrix(cm, writer, ep, title='Prediction', figure_name='MyFigure/image', dtype='d', fontsize=20, save_path=None):
     ''' 
     Parameters:
         labels                          : This is a lit of labels which will be used to display the axix labels
         title='Confusion matrix'        : Title for your matrix
-        tensor_name = 'MyFigure/image'  : Name for the output summay tensor
+        figure_name = 'MyFigure/image'  : Name for the output summay tensor
 
     Returns:
         summary: TensorFlow summary 
@@ -205,7 +205,10 @@ def plot_confusion_matrix(cm, writer, ep, title='Prediction', tensor_name = 'MyF
     for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
         ax.text(j, i, format(cm[i, j], dtype) if cm[i,j]!=0 else '.', horizontalalignment="center", fontsize=fontsize, verticalalignment='center', color= "white")
     fig.set_tight_layout(True)
-    writer.add_figure(tensor_name, fig , ep)
+    if writer is None and save_path is not None:
+        plt.savefig(f'{save_path}/{figure_name}.png')
+    else:  
+        writer.add_figure(figure_name, fig , ep)
 
 def flatten_attention(a, w_size=31):
     w_size = (w_size-1)//2 # make it half window size

@@ -7,19 +7,42 @@ import numpy as np
 import torch
 from .constants import *
 
-def state2time(states, notes):
+def state2time(states):
     states = states.to(torch.int8).cpu()
-    notes = notes.to(torch.int8).cpu()
     scaling = HOP_LENGTH / SAMPLE_RATE
     onset_time = []
-    for i, (s, n) in enumerate(zip(states, notes)):
-        # if s == n and n != 0:
-        #     if i + 1 < len(states) and states[i + 1] != n:
-        #         onset_time.append(i)
+    for i, s in enumerate(states):
         if s == 1:
             if i + 1 < len(states) and states[i + 1] != 1:
                 onset_time.append(i)
     return np.array(onset_time) * scaling
+
+def gen_transcriptions(transcriptions, note_ref, note_i_ref, note_est, note_i_est, tech_ref, tech_i_ref, tech_est, tech_i_est, state_label, note_state):
+    transcriptions['tech_gt'].append(tech_ref)
+    transcriptions['tech_interval_gt'].append(tech_i_ref)
+    transcriptions['note_gt'].append(note_ref + LOGIC_MIDI)
+    transcriptions['note_interval_gt'].append(note_i_ref)
+    transcriptions['state_gt'].append(state2time(state_label))
+    transcriptions['tech'].append(tech_est)
+    transcriptions['tech_interval'].append(tech_i_est)
+    transcriptions['note'].append(note_est + LOGIC_MIDI)
+    transcriptions['note_interval'].append(note_i_est)
+    transcriptions['state'].append(state2time(note_state))
+
+    return transcriptions
+
+def gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_label, note, tech_label, tech, i, ep, save_folder='midi'):
+    tech_ref, tech_i_ref = extract_technique(tech_label) # (tech_label, state_label)
+    tech_est, tech_i_est = extract_technique(tech.squeeze(0))
+
+    midi_path = os.path.join(save_folder, f'song{i}_ep{ep}.midi')
+    gt_midi_path = os.path.join(save_folder, f'gt_song{i}.midi')
+    note_ref, note_i_ref, _, _ = extract_notes(note_label, state_label, midi=True, path=gt_midi_path, convert_pitch=False) #state_label
+    note_est, note_i_est, _, _ = extract_notes(note, note_state, midi=True, path=midi_path, convert_pitch=False) #note_state
+
+    transcriptions = gen_transcriptions(transcriptions, note_ref, note_i_ref, note_est, note_i_est, tech_ref, tech_i_ref, tech_est, tech_i_est, state_label, note_state)
+    
+    return transcriptions
 
 def get_transcription_and_cmx(labels, preds, ep, technique_dict):
     transcriptions = defaultdict(list)
@@ -29,34 +52,12 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
         state_label = label[:,:2].argmax(axis=1)
         note_label = label[:,6:56].argmax(axis=1)
         tech_label = label[:,56:].argmax(axis=1)
-        ######## for state of size 50 ########
-        # state_label = label[:,:50].argmax(axis=1)
-        # note_label = label[:,54:104].argmax(axis=1)
-        # tech_label = label[:,104:].argmax(axis=1)
 
         # state_label = label[:,0]
         # note_label = label[:,2]
         # tech_label = label[:,3]
-        
-        tech_ref, tech_i_ref = extract_technique(tech_label) # (tech_label, state_label)
-        tech_est, tech_i_est = extract_technique(tech.squeeze(0))
+        transcriptions = gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_label, note, tech_label, tech, i, ep)
 
-        midi_path = os.path.join('midi', f'song{i}_ep{ep}.midi')
-        gt_midi_path = os.path.join('midi', f'gt_song{i}.midi')
-        note_ref, note_i_ref, _, _ = extract_notes(note_label, state_label, midi=True, path=gt_midi_path) #state_label
-        note_est, note_i_est, _, _ = extract_notes(note, note_state, midi=True, path=midi_path) #note_state
-
-        transcriptions['tech_gt'].append(tech_ref)
-        transcriptions['tech_interval_gt'].append(tech_i_ref)
-        transcriptions['note_gt'].append(note_ref + LOGIC_MIDI)
-        transcriptions['note_interval_gt'].append(note_i_ref)
-        transcriptions['state_gt'].append(state2time(state_label, note_label))
-        transcriptions['tech'].append(tech_est)
-        transcriptions['tech_interval'].append(tech_i_est)
-        transcriptions['note'].append(note_est + LOGIC_MIDI)
-        transcriptions['note_interval'].append(note_i_est)
-        transcriptions['state'].append(state2time(note_state, note))
-    
     # get macro metrics
     tech_label = labels[:,:,56:].argmax(axis=2).flatten()
     # tech_label = labels[:,:,3].flatten()
@@ -250,7 +251,7 @@ def techniques_to_frames(techniques, intervals, shape):
     tehcniques = [roll[t, :].nonzero()[0] for t in time]
     return time, tehcniques
 
-def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, path=None):
+def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, path=None, convert_pitch=True):
     """
     Finds the note timings based on the onsets and frames information
     Parameters
@@ -315,14 +316,25 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
     scaling = HOP_LENGTH / SAMPLE_RATE
     org_pitches = np.array(pitches)
     org_intervals = np.array(intervals)
-    if scale2time and midi:
+
+    if scale2time:
         intervals = (np.array(intervals) * scaling).reshape(-1, 2)
-        save_midi(path, np.array(pitches), intervals)
-        pitches = np.array(pitches)
-    elif scale2time:
-        intervals = (np.array(intervals) * scaling).reshape(-1, 2)
-        # converting midi number to frequency
+    else:
+        intervals = (np.array(intervals)).reshape(-1, 2)
+    # converting midi number to frequency
+    if convert_pitch:
         pitches = np.array([midi_to_hz(MIN_MIDI + midi) for midi in pitches])
+    else:
+        pitches = np.array(pitches)
+    
+    if midi:
+        save_midi(path, pitches, intervals)
+    # if scale2time and midi:
+    #     intervals = (np.array(intervals) * scaling).reshape(-1, 2)
+    #     save_midi(path, np.array(pitches), intervals)
+    # elif scale2time:
+    #     intervals = (np.array(intervals) * scaling).reshape(-1, 2)
+        
 
     return pitches, intervals, org_pitches, org_intervals
 
