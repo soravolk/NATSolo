@@ -267,15 +267,17 @@ def compute_dataset_weight(device):
         y_3.extend(data['tech_label'].detach().cpu().numpy())
     tech_group_weights = compute_class_weight('balanced', np.unique(y_1), y_1)
     tech_group_weights = torch.tensor(tech_group_weights, dtype=torch.float).to(device)
-    tech_group_weights[2] = 10 * tech_group_weights[2]
+    tech_group_weights[2] = 4 * tech_group_weights[2]
     # note_state_weights = None
     note_state_weights = compute_class_weight('balanced', np.unique(y_2), y_2)
     note_state_weights = torch.tensor(note_state_weights, dtype=torch.float).to(device)
     note_state_weights[1] = 4 * note_state_weights[1] # weight more for onset
-    # note_state_weights[2] = 2 * note_state_weights[2]
+    # note_state_weights[2] = 4 * note_state_weights[2]
     tech_weights = compute_class_weight('balanced', np.unique(y_3), y_3)
     tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
-
+    tech_weights[5] = 4 * tech_weights[5]
+    tech_weights[7] = 4 * tech_weights[7]
+    tech_weights[8] = 4 * tech_weights[8]
     # silent_weights = torch.ones(2, dtype=torch.float).to(device) * 2
     # tech_state_weights = torch.ones(3, dtype=torch.float).to(device)
     # tech_weights = torch.ones(10, dtype=torch.float).to(device) 

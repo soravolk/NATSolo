@@ -59,7 +59,7 @@ def config():
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 8000 #8000 # 20000
+    epoches = 8000 # 20000
     step_size_up = 100
     max_lr = 1e-4
     learning_rate = 5e-4
@@ -70,7 +70,9 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'{root}/lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_UseMidStateAndGroupAttentionDropout0FollowedByAttentionWith0.5Dropout'
+    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_TwoStateL2OneDropout0.5AttentionS0.5G0.5N0T0SN0.5GT0.5WeightMoteForSmallClasses'
+    logdir = f'{root}/{model_save_dir}'
+    ex.observers.append(FileStorageObserver.create(f'checkpoint/{model_save_dir}'))
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
@@ -115,8 +117,8 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         tech_post_a = post_a[3]
         note_post_ab = post_a[4]
         tech_post_ab = post_a[5]
-        state_post_ab = post_a[6]
-        group_post_ab = post_a[7]
+        # state_post_ab = post_a[6]
+        # group_post_ab = post_a[7]
         state_post = post[0]
         group_post = post[1]
         note_post = post[2]
@@ -140,13 +142,10 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         plot_spec_and_post(writer, ep, tech_post_a, 'images/tech_post_a')
         plot_spec_and_post(writer, ep, note_post_ab, 'images/note_post_a_before')
         plot_spec_and_post(writer, ep, tech_post_ab, 'images/tech_post_a_before')
-        plot_spec_and_post(writer, ep, state_post_ab, 'images/state_post_mid')
-        plot_spec_and_post(writer, ep, group_post_ab, 'images/group_post_mid')
+        # plot_spec_and_post(writer, ep, state_post_ab, 'images/state_post_mid')
+        # plot_spec_and_post(writer, ep, group_post_ab, 'images/group_post_mid')
         plot_spec_and_post(writer, ep, state_group_latent, 'images/state_group_latent')
         plot_spec_and_post(writer, ep, note_tech_latent, 'images/note_tech_latent')
-        # plot_spec_and_post(writer, ep, state_latent, 'images/state_latent')
-        # plot_spec_and_post(writer, ep, note_group_latent, 'images/note_group_latent')
-        # plot_spec_and_post(writer, ep, tech_latent, 'images/tech_latent')
         plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
         # Show the transcription result in validation period
         print('Show the transcription result')
@@ -247,7 +246,7 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
 def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size, val_batch_size,
           learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, weight_decay, alpha,
           clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
-          reconstruction): 
+          reconstruction, model_save_dir): 
     print_config(ex.current_run)
     # flac for 16K audio
     train_set, unsupervised_set, valid_set = prepare_VAT_dataset(
@@ -313,30 +312,10 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
                             True, VAT_start, reconstruction)            
 
         # Saving model
-        if ep > 2000 and (ep)%logging_freq == 0:
-            torch.save(model.state_dict(), os.path.join('checkpoint', f'model-{ep}.pt'))
+        if ep == 1 or (ep > 2000 and (ep)%logging_freq == 0):
+            torch.save(model.state_dict(), os.path.join('checkpoint', model_save_dir, f'model-{ep}.pt'))
             torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
-        
+
         for key, values in train_losses.items():
             if key.startswith('loss/'):
                 writer.add_scalar(key, np.mean(values), global_step=ep)
-
-        # for key, value in {**losses}.items():
-        #     writer.add_scalar(key, value.item(), global_step=ep) 
-
-    """
-    # Evaluating model performance on the full MAPS songs in the test split     
-    print('Training finished, now evaluating on the MAPS test split (full songs)')
-    with torch.no_grad():
-        model = model.eval()
-        metrics = evaluate_wo_prediction(tqdm(full_validation), model, reconstruction=False,
-                                       save_path=os.path.join(logdir,'./MIDI_results'))
-        
-    for key, values in metrics.items():
-        if key.startswith('metric/'):
-            _, category, name = key.split('/')
-            print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')
-         
-    export_path = os.path.join(logdir, 'result_dict')    
-    pickle.dump(metrics, open(export_path, 'wb'))
-    """

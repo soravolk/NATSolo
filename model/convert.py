@@ -52,6 +52,9 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
         state_label = label[:,:2].argmax(axis=1)
         note_label = label[:,6:56].argmax(axis=1)
         tech_label = label[:,56:].argmax(axis=1)
+        # state_label = label[:,:3].argmax(axis=1)
+        # note_label = label[:,7:57].argmax(axis=1)
+        # tech_label = label[:,57:].argmax(axis=1)
 
         # state_label = label[:,0]
         # note_label = label[:,2]
@@ -243,7 +246,8 @@ def techniques_to_frames(techniques, intervals, shape):
     time: np.ndarray containing the frame indices
     freqs: list of np.ndarray, each containing the frequency bin indices
     """
-    roll = np.zeros(tuple(shape))
+    roll = np.zeros((shape[0], 9))
+    # roll = np.zeros(tuple(shape))
     for technique, (onset, offset) in zip(techniques, intervals):
         roll[onset:offset, technique] = 1
 
@@ -338,7 +342,7 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
 
     return pitches, intervals, org_pitches, org_intervals
 
-def notes_to_frames(pitches, intervals, shape):
+def notes_to_frames(pitches, intervals, shape, solola=False):
     """
     Takes lists specifying notes sequences and return
     Parameters
@@ -353,16 +357,21 @@ def notes_to_frames(pitches, intervals, shape):
     """
     scaling = HOP_LENGTH / SAMPLE_RATE
     roll = np.zeros((shape[0], 50))
+    state = np.zeros((shape[0], 1))
     for pitch, (onset, offset) in zip(pitches, intervals):
         roll[onset: offset, pitch] = 1
+        if solola:
+            state[onset:offset-1] = 1
 
     time = np.arange(roll.shape[0])
     freqs = [roll[t, :].nonzero()[0] for t in time]
 
     time = (np.array(time) * scaling)
     freqs = np.array([midi_to_hz(MIN_MIDI + midi) for midi in freqs])
-    return time, freqs
-
+    if solola:
+        return time, freqs, state
+    else:
+        return time, freqs
 def save_midi(path, pitches, intervals):
     """
     Save extracted notes as a MIDI file

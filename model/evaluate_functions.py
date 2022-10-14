@@ -14,7 +14,7 @@ from .utils import save_pianoroll
 
 eps = sys.float_info.epsilon    
 
-def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconstruction=True, testing=False):
+def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconstruction=True, testing=False, eval_note=True, eval_tech=True):
     metrics = defaultdict(list) # a safe dict
     macro_cm = None
     macro_note_label = []
@@ -46,6 +46,11 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             #         val_loss[key] += value             
             # get label from one hot vector
             ######## for state of size 3 ########
+            # state_label = val_data['label'][:,:3].argmax(axis=1)
+            # group_label = val_data['label'][:,3:7].argmax(axis=1)
+            # note_label = val_data['label'][:,7:57].argmax(axis=1)
+            # tech_label = val_data['label'][:,57:].argmax(axis=1)
+            ######## for state of size 2 ########
             state_label = val_data['label'][:,:2].argmax(axis=1)
             group_label = val_data['label'][:,2:6].argmax(axis=1)
             note_label = val_data['label'][:,6:56].argmax(axis=1)
@@ -68,30 +73,30 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
                     value.relu_() # value.shape [232, 10]
 
             pred['note'].squeeze_(0)
-            #print(pred['note'])
             pred['note_state'].squeeze_(0)
             pred['tech'].squeeze_(0)
             ############ evaluate techniques ############
             # get the confusion matrix
-            cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].cpu().numpy(), list(technique_dict.keys()))
-            # sum up macro confusion matrix
-            if i == 0:
-                if macro_cm is None:
-                    macro_cm = cm_dict['cm']
-                else:
-                    macro_cm += cm_dict['cm']
-            # get the recall and precision of techniques
-            for key, value in technique_dict.items():
-                p = cm_dict['Precision'][key][key]
-                r = cm_dict['Recall'][key][key]
-                f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
-                temp_metrics[f'metric/{value}/precision'].append(p)
-                temp_metrics[f'metric/{value}/recall'].append(r)
-                temp_metrics[f'metric/{value}/f1'].append(f)
-
-            # get techinique and interval
-            tech_ref, tech_i_ref = extract_technique(tech_label, scale2time=True) # (tech_label, state_label)
-            tech_est, tech_i_est = extract_technique(pred['tech'], scale2time=True) # (pred['tech'], pred['note_state'])
+            if eval_tech:
+                cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), pred['tech'].cpu().numpy(), list(technique_dict.keys()))
+            if eval_tech:
+                # sum up macro confusion matrix
+                if i == 0:
+                    if macro_cm is None:
+                        macro_cm = cm_dict['cm']
+                    else:
+                        macro_cm += cm_dict['cm']
+                # get the recall and precision of techniques
+                for key, value in technique_dict.items():
+                    p = cm_dict['Precision'][key][key]
+                    r = cm_dict['Recall'][key][key]
+                    f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
+                    temp_metrics[f'metric/{value}/precision'].append(p)
+                    temp_metrics[f'metric/{value}/recall'].append(r)
+                    temp_metrics[f'metric/{value}/f1'].append(f)
+                # get techinique and interval
+                tech_ref, tech_i_ref = extract_technique(tech_label, scale2time=True) # (tech_label, state_label)
+                tech_est, tech_i_est = extract_technique(pred['tech'], scale2time=True) # (pred['tech'], pred['note_state'])
             
             if i == 0:
                 macro_note_label.extend(note_label)
@@ -101,12 +106,13 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
                 if testing:
                     inference['testing_note_label'].append(note_label)
                     inference['testing_state_label'].append(state_label)
-                    inference['testing_tech_label'].append(tech_label)
                     inference['testing_note_pred'].append(pred['note'])
                     inference['testing_state_pred'].append(pred['note_state'])
-                    inference['testing_tech_pred'].append(pred['tech'])
-                    specs.append(spec[0].squeeze(0).cpu().numpy())
-                    probs.append((prob[4].squeeze(0).cpu().numpy(), prob[2].squeeze(0).cpu().numpy())) # note_prob, note_prob passed to attention with state
+                    if eval_note and eval_tech:
+                        inference['testing_tech_label'].append(tech_label)
+                        inference['testing_tech_pred'].append(pred['tech'])
+                        specs.append(spec[0].squeeze(0).cpu().numpy())
+                        probs.append((prob[4].squeeze(0).cpu().numpy(), prob[2].squeeze(0).cpu().numpy())) # note_prob, note_prob passed to attention with state
             ############ evaluate techniques ############
             # tp, tr, tf, to = evaluate_notes(tech_i_ref, tech_ref, tech_i_est, tech_est, strict=False, offset_ratio=None, pitch_tolerance=0)
             # temp_metrics['metric/tech/precision'].append(tp)
@@ -115,31 +121,31 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             # temp_metrics['metric/tech/overlap'].append(to)
 
             ############ get note and interval ############ 
-            note_ref, note_i_ref, org_note_ref, org_note_i_ref = extract_notes(note_label, state_label)
-            note_est, note_i_est, org_note_est, org_note_i_est = extract_notes(pred['note'], pred['note_state'])
-            note_t_ref, note_f_ref = notes_to_frames(org_note_ref, org_note_i_ref, note_label.shape)
-            note_t_est, note_f_est = notes_to_frames(org_note_est, org_note_i_est, pred['note'].shape)
-            ############ evaluate notes ############
-            # frame level acc
-            acc = evaluate_frame_accuracy(note_label, pred['note']) 
-            # note level p, r, f1
-            p, r, f, o = evaluate_notes(note_i_ref, note_ref, note_i_est, note_est, strict=False, offset_ratio=None)
-            temp_metrics['metric/note/accuracy'].append(acc)
-            temp_metrics['metric/note/precision'].append(p)
-            temp_metrics['metric/note/recall'].append(r)
-            temp_metrics['metric/note/f1'].append(f)
-            temp_metrics['metric/note/overlap'].append(o)
-            # frame level p, r, f1
-            frame_metrics = evaluate_frames(note_t_ref, note_f_ref, note_t_est, note_f_est)
-            temp_metrics['metric/note/precision_frame'].append(frame_metrics['Precision'])
-            temp_metrics['metric/note/recall_frame'].append(frame_metrics['Recall'])
-            temp_metrics['metric/note/f1_frame'].append(hmean([frame_metrics['Precision'] + eps, frame_metrics['Recall'] + eps]) - eps)
-            
-            # get note accuracy
-            acc = evaluate_frame_accuracy_per_tech(tech_label, note_label, pred['note'])
-            for key, value in technique_dict.items():
-                a_single_tech = acc[key]
-                metrics[f'metric/{value}/accuracy'].append(a_single_tech) # this is note_accuracy
+            if eval_note:
+                note_ref, note_i_ref, org_note_ref, org_note_i_ref = extract_notes(note_label, state_label)
+                note_est, note_i_est, org_note_est, org_note_i_est = extract_notes(pred['note'], pred['note_state'])
+                note_t_ref, note_f_ref = notes_to_frames(org_note_ref, org_note_i_ref, note_label.shape)
+                note_t_est, note_f_est = notes_to_frames(org_note_est, org_note_i_est, pred['note'].shape)
+                ############ evaluate notes ############
+                # frame level acc
+                acc = evaluate_frame_accuracy(note_label, pred['note']) 
+                # note level p, r, f1
+                p, r, f, o = evaluate_notes(note_i_ref, note_ref, note_i_est, note_est, strict=False, offset_ratio=None)
+                temp_metrics['metric/note/accuracy'].append(acc)
+                temp_metrics['metric/note/precision'].append(p)
+                temp_metrics['metric/note/recall'].append(r)
+                temp_metrics['metric/note/f1'].append(f)
+                temp_metrics['metric/note/overlap'].append(o)
+                # frame level p, r, f1
+                frame_metrics = evaluate_frames(note_t_ref, note_f_ref, note_t_est, note_f_est)
+                temp_metrics['metric/note/precision_frame'].append(frame_metrics['Precision'])
+                temp_metrics['metric/note/recall_frame'].append(frame_metrics['Recall'])
+                temp_metrics['metric/note/f1_frame'].append(hmean([frame_metrics['Precision'] + eps, frame_metrics['Recall'] + eps]) - eps)
+                # get note accuracy
+                acc = evaluate_frame_accuracy_per_tech(tech_label, note_label, pred['note'])
+                for key, value in technique_dict.items():
+                    a_single_tech = acc[key]
+                    metrics[f'metric/{value}/accuracy'].append(a_single_tech) # this is note_accuracy
 
             # p, r, f, o = evaluate_notes(note_i_ref, note_ref_hz, note_i_est, note_est_hz)
             # metrics['metric/note-with-offsets/precision'].append(p)
@@ -148,18 +154,20 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             # metrics['metric/note-with-offsets/overlap'].append(o)
         for key, loss in losses.items():
             metrics[key].append(sum(temp_metrics[key]) / iteration)
-        for key, value in technique_dict.items():
-            metrics[f'metric/{value}/precision'].append(sum(temp_metrics[f'metric/{value}/precision']) / iteration)
-            metrics[f'metric/{value}/recall'].append(sum(temp_metrics[f'metric/{value}/recall']) / iteration)
-            metrics[f'metric/{value}/f1'].append(sum(temp_metrics[f'metric/{value}/f1']) / iteration)
-        metrics['metric/note/accuracy'].append(sum(temp_metrics['metric/note/accuracy']) / iteration)
-        metrics['metric/note/precision'].append(sum(temp_metrics['metric/note/precision']) / iteration)
-        metrics['metric/note/recall'].append(sum(temp_metrics['metric/note/recall']) / iteration)
-        metrics['metric/note/f1'].append(sum(temp_metrics['metric/note/f1']) / iteration)
-        metrics['metric/note/overlap'].append(sum(temp_metrics['metric/note/overlap']) / iteration)
-        metrics['metric/note/precision_frame'].append(sum(temp_metrics['metric/note/precision_frame']) / iteration)
-        metrics['metric/note/recall_frame'].append(sum(temp_metrics['metric/note/recall_frame']) / iteration)
-        metrics['metric/note/f1_frame'].append(sum(temp_metrics['metric/note/f1_frame']) / iteration)
+        if eval_tech:
+            for key, value in technique_dict.items():
+                metrics[f'metric/{value}/precision'].append(sum(temp_metrics[f'metric/{value}/precision']) / iteration)
+                metrics[f'metric/{value}/recall'].append(sum(temp_metrics[f'metric/{value}/recall']) / iteration)
+                metrics[f'metric/{value}/f1'].append(sum(temp_metrics[f'metric/{value}/f1']) / iteration)
+        if eval_note:
+            metrics['metric/note/accuracy'].append(sum(temp_metrics['metric/note/accuracy']) / iteration)
+            metrics['metric/note/precision'].append(sum(temp_metrics['metric/note/precision']) / iteration)
+            metrics['metric/note/recall'].append(sum(temp_metrics['metric/note/recall']) / iteration)
+            metrics['metric/note/f1'].append(sum(temp_metrics['metric/note/f1']) / iteration)
+            metrics['metric/note/overlap'].append(sum(temp_metrics['metric/note/overlap']) / iteration)
+            metrics['metric/note/precision_frame'].append(sum(temp_metrics['metric/note/precision_frame']) / iteration)
+            metrics['metric/note/recall_frame'].append(sum(temp_metrics['metric/note/recall_frame']) / iteration)
+            metrics['metric/note/f1_frame'].append(sum(temp_metrics['metric/note/f1_frame']) / iteration)
 
         # if save_path is not None:
             # os.makedirs(save_path, exist_ok=True)
@@ -169,40 +177,42 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             # save_pianoroll(pred_path, pred['technique'])
     
     ############ get the macro recall and precision of technique s############ 
-    macro_recall, macro_precision  = get_prec_recall(macro_cm)
-    for key, value in technique_dict.items():
-        # if key == 0:
-        #     continue
-        p = macro_precision[key][key] #[key-1][key-1]
-        r = macro_recall[key][key]
-        f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
-        metrics[f'metric/{value}/macro_precision'].append(p)
-        metrics[f'metric/{value}/macro_recall'].append(r)
-        metrics[f'metric/{value}/macro_f1'].append(f)
+    if eval_tech:
+        macro_recall, macro_precision  = get_prec_recall(macro_cm)
+        for key, value in technique_dict.items():
+            # if key == 0:
+            #     continue
+            p = macro_precision[key][key] #[key-1][key-1]
+            r = macro_recall[key][key]
+            f = (2 * p * r) / float(p + r) if (p != 0 or r != 0) else 0
+            metrics[f'metric/{value}/macro_precision'].append(p)
+            metrics[f'metric/{value}/macro_recall'].append(r)
+            metrics[f'metric/{value}/macro_f1'].append(f)
+        cm_dict_all = {}
+        cm_dict_all['cm'] = macro_cm
+        cm_dict_all['Precision'] = macro_precision
+        cm_dict_all['Recall'] = macro_recall
     ############ get macro note metrics ############
-    macro_note_label = torch.tensor(macro_note_label)
-    macro_note_pred = torch.tensor(macro_note_pred)
-    macro_note_ref, macro_note_i_ref, org_note_ref, org_note_i_ref = extract_notes(macro_note_label, torch.tensor(macro_state_label))
-    macro_note_est, macro_note_i_est, org_note_est, org_note_i_est = extract_notes(macro_note_pred, torch.tensor(macro_state_pred))
-    note_t_ref, note_f_ref = notes_to_frames(org_note_ref, org_note_i_ref, macro_note_label.shape)
-    note_t_est, note_f_est = notes_to_frames(org_note_est, org_note_i_est, macro_note_pred.shape)
-    
-    acc = evaluate_frame_accuracy(macro_note_label, macro_note_pred) # frame level
-    p, r, f, o = evaluate_notes(macro_note_i_ref, macro_note_ref, macro_note_i_est, macro_note_est, offset_ratio=None)
-    metrics['metric/note/accuracy_macro'].append(acc)
-    metrics['metric/note/precision_macro'].append(p)
-    metrics['metric/note/recall_macro'].append(r)
-    metrics['metric/note/f1_macro'].append(f)
+    if eval_note:
+        macro_note_label = torch.tensor(macro_note_label)
+        macro_note_pred = torch.tensor(macro_note_pred)
+        macro_note_ref, macro_note_i_ref, org_note_ref, org_note_i_ref = extract_notes(macro_note_label, torch.tensor(macro_state_label))
+        macro_note_est, macro_note_i_est, org_note_est, org_note_i_est = extract_notes(macro_note_pred, torch.tensor(macro_state_pred))
+        note_t_ref, note_f_ref = notes_to_frames(org_note_ref, org_note_i_ref, macro_note_label.shape)
+        note_t_est, note_f_est = notes_to_frames(org_note_est, org_note_i_est, macro_note_pred.shape)
+        
+        acc = evaluate_frame_accuracy(macro_note_label, macro_note_pred) # frame level
+        p, r, f, o = evaluate_notes(macro_note_i_ref, macro_note_ref, macro_note_i_est, macro_note_est, offset_ratio=None)
+        metrics['metric/note/accuracy_macro'].append(acc)
+        metrics['metric/note/precision_macro'].append(p)
+        metrics['metric/note/recall_macro'].append(r)
+        metrics['metric/note/f1_macro'].append(f)
 
-    frame_metrics = evaluate_frames(note_t_ref, note_f_ref, note_t_est, note_f_est)
-    metrics['metric/note/precision_frame_macro'].append(frame_metrics['Precision'])
-    metrics['metric/note/recall_frame_macro'].append(frame_metrics['Recall'])
-    metrics['metric/note/f1_frame_macro'].append(hmean([frame_metrics['Precision'] + eps, frame_metrics['Recall'] + eps]) - eps)
+        frame_metrics = evaluate_frames(note_t_ref, note_f_ref, note_t_est, note_f_est)
+        metrics['metric/note/precision_frame_macro'].append(frame_metrics['Precision'])
+        metrics['metric/note/recall_frame_macro'].append(frame_metrics['Recall'])
+        metrics['metric/note/f1_frame_macro'].append(hmean([frame_metrics['Precision'] + eps, frame_metrics['Recall'] + eps]) - eps)
 
-    cm_dict_all = {}
-    cm_dict_all['cm'] = macro_cm
-    cm_dict_all['Precision'] = macro_precision
-    cm_dict_all['Recall'] = macro_recall
     if not testing:
         return metrics, cm_dict_all #, val_loss
     else:

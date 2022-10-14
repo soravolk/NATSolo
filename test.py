@@ -5,6 +5,10 @@ import librosa
 import librosa.display
 import matplotlib.pyplot as plt
 from model.UNet import UNet
+# from onsets_and_frames.onsets_and_frames import *
+# from onsets_and_frames.onsets_and_frames.transcriber import OnsetsAndFrames
+from onsets_and_frames.evaluate import evaluate
+from onsets_and_frames.onsets_and_frames.dataset import Solo as Solo_OF
 from model.dataset import Solo
 from model.convert import *
 from model.evaluate_functions import *
@@ -13,19 +17,30 @@ from model.utils import plot_confusion_matrix
 def parse():
     parser = argparse.ArgumentParser(description='testing script')
     parser.add_argument('model', type=str, help='Path of the transcription model')
+    parser.add_argument('--model_name', type=str, default='unet', help='Name of the model')
+    parser.add_argument('--note', type=bool, default=True, help='whether to evaluate notes')
+    parser.add_argument('--tech', type=bool, default=True, help='whether to evaluate techniques')
     parser.add_argument('--save_path', type=str, default='testing', help='Path to save midi, transcriptions and corresponding metrics')
     parser.add_argument('--audio_type', type=str, default='flac', help='Path of the transcription model')
     return parser
 
-def load_data(audio_type, device):
-    return Solo(folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
+def load_data(audio_type, device, name):
+    if name == 'unet':
+        return Solo(folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
+    elif name == 'of':
+        return Solo_OF(path='./Solo', folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
 
-def load_model(path, device):
+def load_model(path, device, name):
     ds_ksize, ds_stride = 2, 2
     # eps=1.3 #2 
-    model = UNet(ds_ksize, ds_stride, log=True, spec='Mel', device=device)
-    model.to(device)
-    model.load_state_dict(torch.load(path))
+    if name == 'unet':
+        model = UNet(ds_ksize, ds_stride, log=True, spec='Mel', device=device)
+        model.to(device)
+        model.load_state_dict(torch.load(path))
+    elif name == 'of':
+        # model = OnsetsAndFrames(229, MAX_MIDI - MIN_MIDI + 1, 48)
+        # print(model)
+        model = torch.load(path)
     return model
 
 def save_metrics(metrics, save_folder):
@@ -163,7 +178,7 @@ def save_confusion_mat(cm_dict_all, save_folder):
         else:
             plot_confusion_matrix(cm_dict_all[output_key], None, ep, output_key, f'{output_key}_all', '.2f', 6, cmat_path)
 
-def evaluation(model, testing_set, save_path):
+def evaluation(model, testing_set, save_path, eval_note, eval_tech, name):
     technique_dict = {
         0: 'no tech',
         1: 'slide',
@@ -191,16 +206,22 @@ def evaluation(model, testing_set, save_path):
     ep = 1
     model.eval()
     with torch.no_grad():
-        metrics, cm_dict_all, inferences, spec, prob = evaluate_prediction(testing_set, model, ep, technique_dict, save_path=save_path, testing=True)
+        if name == 'unet':
+            metrics, cm_dict_all, inferences, spec, prob = evaluate_prediction(testing_set, model, ep, technique_dict, save_path=save_path, testing=True, eval_not=eval_note, eval_tech=eval_tech)
+        elif name == 'of':
+            metrics = evaluate(testing_set, model)
         save_metrics(metrics, args.save_path)
-        save_transcription_and_midi(inferences, spec, prob, args.save_path)
-        save_confusion_mat(cm_dict_all, args.save_path)
+
+        if eval_note and eval_tech:
+            save_transcription_and_midi(inferences, spec, prob, args.save_path)
+        if eval_tech:
+            save_confusion_mat(cm_dict_all, args.save_path)
     
 if __name__ == '__main__':
     device = 'cuda:0'
     parser = parse()
     args = parser.parse_args()
-    testing_set = load_data(args.audio_type, device)
-    model = load_model(args.model, device)
-    evaluation(model, testing_set, args.save_path)
+    testing_set = load_data(args.audio_type, device, args.model_name)
+    model = load_model(args.model, device, args.model_name)
+    evaluation(model, testing_set, args.save_path, args.note, args.tech, args.model_name)
     

@@ -8,3 +8,4 @@ midi/
 checkpoint
 model/yolo_exp/yolox/models/yolox_s.pth
 testing
+new_testing
