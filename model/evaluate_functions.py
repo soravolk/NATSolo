@@ -57,17 +57,7 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             # group_label = val_data['label'][:,2:6].argmax(axis=1)
             # note_label = val_data['label'][:,6:56].argmax(axis=1)
             # tech_label = val_data['label'][:,56:].argmax(axis=1)
-            ######## for state of size 50 ########
-            # state_label = val_data['label'][:,:50].argmax(axis=1)
-            # group_label = val_data['label'][:,50:54].argmax(axis=1)
-            # note_label = val_data['label'][:,54:104].argmax(axis=1)
-            # tech_label = val_data['label'][:,104:].argmax(axis=1)
-            ######## for softmax ########
-            # val_data['label'] = val_data['label'].type(torch.LongTensor).cuda()
-            # state_label = val_data['label'][:,0]#.argmax(axis=1)
-            # group_label = val_data['label'][:,1]#.argmax(axis=1)
-            # note_label = val_data['label'][:,2]#.argmax(axis=1)
-            # tech_label = val_data['label'][:,3]#.argmax(axis=1)
+
             for key, loss in losses.items():
                 temp_metrics[key].append(loss.item())
             for key, value in pred.items():
@@ -119,12 +109,6 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
                         inference['testing_tech_pred'].append(pred['tech'])
                         specs.append(spec[0].squeeze(0).cpu().numpy())
                         probs.append((prob[4].squeeze(0).cpu().numpy(), prob[2].squeeze(0).cpu().numpy())) # note_prob, note_prob passed to attention with state
-            ############ evaluate techniques ############
-            # tp, tr, tf, to = evaluate_notes(tech_i_ref, tech_ref, tech_i_est, tech_est, strict=False, offset_ratio=None, pitch_tolerance=0)
-            # temp_metrics['metric/tech/precision'].append(tp)
-            # temp_metrics['metric/tech/recall'].append(tr)
-            # temp_metrics['metric/tech/f1'].append(tf)
-            # temp_metrics['metric/tech/overlap'].append(to)
 
             ############ get note and interval ############ 
             if eval_note:

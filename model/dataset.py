@@ -127,9 +127,8 @@ class AudioDataset(Dataset):
         all_steps = audio_length // HOP_LENGTH
         # 0 means silence (not lead guitar)
         tech_group_label = torch.zeros(all_steps, dtype=torch.int8)
-        tech_label = torch.zeros(all_steps, dtype=torch.int8)
+        tech_label = torch.ones(all_steps, dtype=torch.int8) * 9
         note_state_label = torch.zeros(all_steps, dtype=torch.int8)
-        # note_state_label = torch.ones(all_steps, dtype=torch.int8) * 51
         note_label = torch.ones(all_steps, dtype=torch.int8) * 51
 
         # load labels(start, duration, techniques)
@@ -137,8 +136,8 @@ class AudioDataset(Dataset):
         all_note = np.loadtxt(note_tsv_path, delimiter='\t', skiprows=1)
         # processing tech labels
         for start, end, technique in all_tech:
-            if technique == 0: # normal
-                continue
+            # if technique == 0: # normal
+            #     continue
 
             left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
             left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
@@ -186,7 +185,7 @@ class AudioDataset(Dataset):
         tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=4)
         # 0 % 51 = 0 means no note (the lowest note is 52)
         note_label_onehot = F.one_hot(note_label.to(torch.int64) - 51, num_classes=50)
-        tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=9)
+        tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=10)
         label = torch.cat((note_state_label_onehot, tech_group_label_onehot, note_label_onehot, tech_label_onehot), 1)
         # label = torch.cat((note_state_label.unsqueeze(1), tech_group_label.unsqueeze(1), (note_label - 51).unsqueeze(1), tech_label.unsqueeze(1)), 1)
         data = dict(path=audio_path, audio=audio, note_state_label=note_state_label, tech_group_label=tech_group_label, tech_label=tech_label, label=label)

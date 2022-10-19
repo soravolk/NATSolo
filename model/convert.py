@@ -122,8 +122,8 @@ def evaluate_frame_accuracy(correct_labels, predict_labels):
 
 def evaluate_frame_accuracy_per_tech(techniques, correct_labels, predict_labels):
     
-    accuracy_per_tech = torch.zeros(9, 2) # [[# note, # ac note], [], ... ]
-    accuracy = torch.zeros(9)
+    accuracy_per_tech = torch.zeros(10, 2) # [[# note, # ac note], [], ... ]
+    accuracy = torch.zeros(10)
     for tech, ref, est in zip(techniques, correct_labels, predict_labels):
         accuracy_per_tech[tech][0] += 1
         if ref == est:
@@ -156,7 +156,8 @@ def evaluate_technique(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dic
         5: [],
         6: [],
         7: [],
-        8: []
+        8: [],
+        9: []
     }
     tech_pred = {
         0: [],
@@ -167,7 +168,8 @@ def evaluate_technique(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dic
         5: [],
         6: [],
         7: [],
-        8: []
+        8: [],
+        9: []
     }
     m = ''
     if macro:
@@ -264,7 +266,7 @@ def techniques_to_frames(techniques, intervals, shape):
     time: np.ndarray containing the frame indices
     freqs: list of np.ndarray, each containing the frequency bin indices
     """
-    roll = np.zeros((shape[0], 9))
+    roll = np.zeros((shape[0], 10))
     # roll = np.zeros(tuple(shape))
     for technique, (onset, offset) in zip(techniques, intervals):
         roll[onset:offset, technique] = 1

@@ -72,7 +72,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_TechSOTASettingButThreeStatesNoteGroupTechAttentionForTech'
+    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_TechSOTASettingButThreeStatesNoteGroupTechAttentionForTechIncluNormal'
     logdir = f'{root}/{model_save_dir}'
     ex.observers.append(FileStorageObserver.create(f'checkpoint/{model_save_dir}'))
 
@@ -80,7 +80,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
                     VAT, VAT_start, reconstruction):
     technique_dict = {
-        0: 'no tech',
+        0: 'normal',
         1: 'slide',
         2: 'bend',
         3: 'trill',
@@ -88,7 +88,8 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         5: 'pull',
         6: 'harmonic',
         7: 'hammer',
-        8: 'tap'
+        8: 'tap',
+        9: 'no tech'
     }
     # log various result from the validation audio
     model.eval()

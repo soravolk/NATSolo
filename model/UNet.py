@@ -349,9 +349,9 @@ class Spec2Roll(nn.Module):
         self.state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=3, dropout=0.2)
         self.group_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=4, dropout=0.2)
         self.note_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
-        self.tech_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
+        self.tech_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=10, dropout=0.2)
         self.state_note_attention = Stack(input_size=53, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
-        self.group_tech_attention = Stack(input_size=63, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
+        self.group_tech_attention = Stack(input_size=64, hidden_dim=768, attn_size=31, attn_group=6, output_dim=10, dropout=0.2)
 
         # self.softmax = nn.LogSoftmax(dim=-1)
 
@@ -699,7 +699,7 @@ class UNet(nn.Module):
                     'note_state': pred[0].reshape(-1, 3),
                     'tech_group': pred[1].reshape(-1, 4),
                     'note': pred[2].reshape(-1, 50),
-                    'tech': pred[3].reshape(-1, 9),
+                    'tech': pred[3].reshape(-1, 10),
                     'r_adv': r_adv,
                     }
             losses = {
@@ -742,7 +742,7 @@ class UNet(nn.Module):
                     # 'note_state': state_pred.reshape(-1, 2).argmax(axis=1).reshape(-1, spec.shape[-2]),
                     'tech_group': group_pred.reshape(-1, 4).argmax(axis=1).reshape(-1, bins),
                     'note': note_pred.reshape(-1, 50).argmax(axis=1).reshape(-1, bins),
-                    'tech': tech_pred.reshape(-1, 9).argmax(axis=1).reshape(-1, bins),
+                    'tech': tech_pred.reshape(-1, 10).argmax(axis=1).reshape(-1, bins),
                     'r_adv': r_adv,
                     }      
             losses = {
