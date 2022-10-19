@@ -5,7 +5,7 @@ from pydub import AudioSegment
 # files                                                                         
 # path = glob('./Solo/*/wav/*.wav')
 # print(path)
-folders = glob('./Solo/*/wav')
+folders = glob('./GN/*/wav')
 for folder in folders:
     for wavfile in glob(f'{folder}/*.wav'):
         filename = wavfile.split('/')[-1]

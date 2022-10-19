@@ -61,7 +61,7 @@ def extract_note_tech(path):
     return techniques, t_intervals, pitches, p_intervals, org_pitches, org_p_intervals, org_t_intervals
 
 def load_data():
-    return Solo(path='../Solo', folders=['valid'], sequence_length=None, device='cuda:0', audio_type='flac')
+    return Solo(path='../GN', folders=['valid'], sequence_length=None, device='cuda:0', audio_type='flac')
 
 def techframe2pred(frame):
     pred = []
@@ -83,7 +83,7 @@ def noteframe2pred(frame):
 
 def evaluate(technique_dict, valid_set):
     metrics = defaultdict(list)
-    result_dir = './new_testing'
+    result_dir = './old_licks'
     files = sorted(os.listdir(result_dir))
     macro_cm = None
     macro_note_label = []

@@ -19,13 +19,15 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
     macro_cm = None
     macro_note_label = []
     macro_state_label = []
+    macro_tech_label = []
     macro_note_pred = []
     macro_state_pred = []
+    macro_tech_pred = []
     val_loss = None
     if len(data) > 5:
         iteration = 1
     else:
-        iteration = 5
+        iteration = 1
         
     if testing:
         inference = defaultdict(list)
@@ -46,15 +48,15 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             #         val_loss[key] += value             
             # get label from one hot vector
             ######## for state of size 3 ########
-            # state_label = val_data['label'][:,:3].argmax(axis=1)
-            # group_label = val_data['label'][:,3:7].argmax(axis=1)
-            # note_label = val_data['label'][:,7:57].argmax(axis=1)
-            # tech_label = val_data['label'][:,57:].argmax(axis=1)
+            state_label = val_data['label'][:,:3].argmax(axis=1)
+            group_label = val_data['label'][:,3:7].argmax(axis=1)
+            note_label = val_data['label'][:,7:57].argmax(axis=1)
+            tech_label = val_data['label'][:,57:].argmax(axis=1)
             ######## for state of size 2 ########
-            state_label = val_data['label'][:,:2].argmax(axis=1)
-            group_label = val_data['label'][:,2:6].argmax(axis=1)
-            note_label = val_data['label'][:,6:56].argmax(axis=1)
-            tech_label = val_data['label'][:,56:].argmax(axis=1)
+            # state_label = val_data['label'][:,:2].argmax(axis=1)
+            # group_label = val_data['label'][:,2:6].argmax(axis=1)
+            # note_label = val_data['label'][:,6:56].argmax(axis=1)
+            # tech_label = val_data['label'][:,56:].argmax(axis=1)
             ######## for state of size 50 ########
             # state_label = val_data['label'][:,:50].argmax(axis=1)
             # group_label = val_data['label'][:,50:54].argmax(axis=1)
@@ -97,12 +99,16 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
                 # get techinique and interval
                 tech_ref, tech_i_ref = extract_technique(tech_label, scale2time=True) # (tech_label, state_label)
                 tech_est, tech_i_est = extract_technique(pred['tech'], scale2time=True) # (pred['tech'], pred['note_state'])
-            
+                
+                temp_metrics = evaluate_technique(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dict, temp_metrics)
+
             if i == 0:
                 macro_note_label.extend(note_label)
                 macro_state_label.extend(state_label)
                 macro_note_pred.extend(pred['note'])
                 macro_state_pred.extend(pred['note_state'])
+                macro_tech_label.extend(tech_label)
+                macro_tech_pred.extend(pred['tech'])
                 if testing:
                     inference['testing_note_label'].append(note_label)
                     inference['testing_state_label'].append(state_label)
@@ -159,6 +165,9 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
                 metrics[f'metric/{value}/precision'].append(sum(temp_metrics[f'metric/{value}/precision']) / iteration)
                 metrics[f'metric/{value}/recall'].append(sum(temp_metrics[f'metric/{value}/recall']) / iteration)
                 metrics[f'metric/{value}/f1'].append(sum(temp_metrics[f'metric/{value}/f1']) / iteration)
+                metrics[f'metric/{value}/precision_note'].append(sum(temp_metrics[f'metric/{value}/precision_note']) / iteration)
+                metrics[f'metric/{value}/recall_note'].append(sum(temp_metrics[f'metric/{value}/recall_note']) / iteration)
+                metrics[f'metric/{value}/f1_note'].append(sum(temp_metrics[f'metric/{value}/f1_note']) / iteration)
         if eval_note:
             metrics['metric/note/accuracy'].append(sum(temp_metrics['metric/note/accuracy']) / iteration)
             metrics['metric/note/precision'].append(sum(temp_metrics['metric/note/precision']) / iteration)
@@ -176,7 +185,7 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
             # pred_path = os.path.join(save_path, os.path.basename(val_data['path']) + '.pred.png')
             # save_pianoroll(pred_path, pred['technique'])
     
-    ############ get the macro recall and precision of technique s############ 
+    ############ get the macro recall and precision of techniques ############ 
     if eval_tech:
         macro_recall, macro_precision  = get_prec_recall(macro_cm)
         for key, value in technique_dict.items():
@@ -192,6 +201,12 @@ def evaluate_prediction(data, model, ep, technique_dict, save_path=None, reconst
         cm_dict_all['cm'] = macro_cm
         cm_dict_all['Precision'] = macro_precision
         cm_dict_all['Recall'] = macro_recall
+
+        macro_tech_label = torch.tensor(macro_tech_label)
+        macro_tech_pred = torch.tensor(macro_tech_pred)
+        tech_ref, tech_i_ref = extract_technique(macro_tech_label, scale2time=True) # (tech_label, state_label)
+        tech_est, tech_i_est = extract_technique(macro_tech_pred, scale2time=True) # (pred['tech'], pred['note_state'])
+        metrics = evaluate_technique(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dict, metrics, macro=True)
     ############ get macro note metrics ############
     if eval_note:
         macro_note_label = torch.tensor(macro_note_label)

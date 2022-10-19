@@ -106,7 +106,7 @@ batchNorm_momentum = 0.1
 ### U-net for the labelled data ###
 ''' Encoder '''
 class block(nn.Module):
-    def __init__(self, inp, out, ksize, pad, ds_ksize, ds_stride, drop=False, pool=True):
+    def __init__(self, inp, out, ksize, pad, ds_ksize, ds_stride, drop=None):
         super(block, self).__init__()
         self.conv1 = nn.Conv2d(inp,out, kernel_size=ksize, padding=pad)
         self.bn1 = nn.BatchNorm2d(out, momentum=batchNorm_momentum)
@@ -114,23 +114,24 @@ class block(nn.Module):
         self.bn2 = nn.BatchNorm2d(out, momentum=batchNorm_momentum)
         self.skip = nn.Conv2d(inp, out, kernel_size=1, padding=0)
         self.ds = nn.Conv2d(out, out, kernel_size=ds_ksize, stride=ds_stride, padding=0)
-        # self.dropout = nn.Dropout(0.1)
+        self.drop = drop
+        if drop is not None: 
+            self.dropout = nn.Dropout(drop)
         # self.maxpool = nn.MaxPool2d(kernel_size=ds_ksize, stride=ds_stride)
-        # self.drop = drop
         # self.pool = pool
 
     def forward(self, x):
         x11 = F.leaky_relu(self.bn1(self.conv1(x)))
         x12 = F.leaky_relu(self.bn2(self.conv2(x11)))
-        x12 += self.skip(x)
-        xp = self.ds(x12)
-
-        # if self.drop:
-        #     xp = self.dropout(x12)
-        #     if self.pool:
-        #         xp = self.maxpool(xp)
+            # if self.pool:
+            #     xp = self.maxpool(xp)
         # elif self.pool:
         #     xp = self.maxpool(x12)
+        x12 += self.skip(x)
+        if self.drop is not None:
+            x12 = self.dropout(x12)
+        xp = self.ds(x12)
+
 
         return xp, xp, x12.size()
 
@@ -140,18 +141,18 @@ class Encoder1(nn.Module):
         self.block1 = block(inp,16,(3,3),(1,1),ds_ksize, ds_stride)
         self.block2 = block(16,32,(3,3),(1,1),ds_ksize, ds_stride)
         self.block3 = block(32,64,(3,3),(1,1),ds_ksize, ds_stride)
-        self.block4 = block(64,128,(3,3),(1,1),ds_ksize, ds_stride)#, drop=True, pool=False)
+        self.block4 = block(64,128,(3,3),(1,1),ds_ksize, ds_stride, drop=drop)
 
         self.conv1 = nn.Conv2d(64,64, kernel_size=(3,3), padding=(1,1)) 
         self.conv2 = nn.Conv2d(32,32, kernel_size=(3,3), padding=(1,1)) 
         self.conv3 = nn.Conv2d(16,16, kernel_size=(3,3), padding=(1,1)) 
-        self.drop = drop
-        if self.drop is not None:
-            self.dropout = nn.Dropout(drop)
+        # # self.drop = drop
+        # # if self.drop is not None:
+        # #     self.dropout = nn.Dropout(drop)
         # self.block1 = block(inp,32,(3,3),(1,1),ds_ksize, ds_stride)
         # self.block2 = block(32,64,(3,3),(1,1),ds_ksize, ds_stride)
         # self.block3 = block(64,128,(3,3),(1,1),ds_ksize, ds_stride)
-        # self.block4 = block(128,256,(3,3),(1,1),ds_ksize, ds_stride)#, drop=True, pool=False)
+        # self.block4 = block(128,256,(3,3),(1,1),ds_ksize, ds_stride, drop=drop)
 
         # self.conv1 = nn.Conv2d(128,128, kernel_size=(3,3), padding=(1,1)) 
         # self.conv2 = nn.Conv2d(64,64, kernel_size=(3,3), padding=(1,1)) 
@@ -167,23 +168,31 @@ class Encoder1(nn.Module):
         # if self.drop is not None and self.training:
         #     x3 = self.dropout(x3)
         x4,idx4,s4 = self.block4(x3)
-        if self.drop is not None:
-            x4 = self.dropout(x4)    
-
+        # if self.drop is not None:
+        #     x4 = self.dropout(x4)    
         skip3=self.conv1(x3) 
         skip2=self.conv2(x2) 
         skip1=self.conv3(x1) 
-
         return x4,[s4,s3,s2,s1],[skip3,skip2,skip1,x]
+
+        # x1,idx1,s1 = self.block1(x)
+        # x2,idx2,s2 = self.block2(x1)
+        # x3,idx3,s3 = self.block3(x2)
+        # x4,idx4,s4 = self.block4(x3)
+        # x5,idx5,s5 = self.block5(x4)
+        # skip4=self.conv1(x4) 
+        # skip3=self.conv2(x3) 
+        # skip2=self.conv3(x2) 
+        # skip1=self.conv4(x1)
+        # return x5,[s5,s4,s3,s2,s1],[skip4,skip3,skip2,skip1,x]
 
 class Encoder2(nn.Module):
     def __init__(self,inp,ds_ksize, ds_stride, drop=None):
         super(Encoder2, self).__init__()
-        # WARNING: change the input channel from 1 to 3 to test different window sizes
         self.block1 = block(inp,16,(3,3),(1,1),ds_ksize, ds_stride)
         self.block2 = block(16,32,(3,3),(1,1),ds_ksize, ds_stride)
         self.block3 = block(32,64,(3,3),(1,1),ds_ksize, ds_stride)
-        self.block4 = block(64,128,(3,3),(1,1),ds_ksize, ds_stride, drop=True, pool=False)
+        self.block4 = block(64,128,(3,3),(1,1),ds_ksize, ds_stride)
 
         self.conv1 = nn.Conv2d(64,64, kernel_size=(3,3), padding=(1,1)) 
         self.conv2 = nn.Conv2d(32,32, kernel_size=(3,3), padding=(1,1)) 
@@ -209,7 +218,7 @@ class Encoder2(nn.Module):
         return x4,[s4,s3,s2,s1],[skip3,skip2,skip1,x]
 ''' Decoder '''
 class d_block(nn.Module):
-    def __init__(self, inp, out, isLast, ksize, pad, ds_ksize, ds_stride, skip):
+    def __init__(self, inp, out, isLast, ksize, pad, ds_ksize, ds_stride, skip, drop=None):
         super(d_block, self).__init__()
         self.conv1 = nn.ConvTranspose2d(inp, int(inp/2), kernel_size=ksize, padding=pad)
         self.bn1= nn.BatchNorm2d(int(inp/2), momentum= batchNorm_momentum)
@@ -224,6 +233,9 @@ class d_block(nn.Module):
                 self.us = nn.ConvTranspose2d(inp-out, inp, kernel_size=ds_ksize, stride=ds_stride)
         else:
             self.us = nn.ConvTranspose2d(inp, inp, kernel_size=ds_ksize, stride=ds_stride)
+        self.drop = drop
+        if drop is not None: 
+            self.dropout = nn.Dropout(drop)
 
     def forward(self, x, size=None, isLast=None, skip=None):
         # up sampling
@@ -239,7 +251,9 @@ class d_block(nn.Module):
                 x = torch.cat((x, skip), 1)
 
         x = F.leaky_relu(self.bn1(self.conv1(x)))
-        if isLast: 
+        if self.drop is not None:
+            x = self.dropout(x)
+        if isLast:
             x = self.conv2(x)
         else:
             x = F.leaky_relu(self.bn2(self.conv2(x)))
@@ -252,29 +266,34 @@ class Decoder1(nn.Module):
         self.d_block1 = d_block(192,64,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         self.d_block2 = d_block(96,32,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         self.d_block3 = d_block(48,16,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        self.d_block4 = d_block(16,num_output,True,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        self.drop = drop
-        if self.drop is not None:
-            self.dropout = nn.Dropout(drop)
+        self.d_block4 = d_block(16,num_output,True,(3,3),(1,1),ds_ksize, ds_stride, skip, drop=drop)
+        # # self.drop = drop
+        # # if self.drop is not None:
+        # #     self.dropout = nn.Dropout(drop)
         # self.d_block1 = d_block(384,128,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         # self.d_block2 = d_block(192,64,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         # self.d_block3 = d_block(96,32,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        # self.d_block4 = d_block(32,num_output,True,(3,3),(1,1),ds_ksize, ds_stride, skip)
+        # self.d_block4 = d_block(32,num_output,True,(3,3),(1,1),ds_ksize, ds_stride, skip, drop=drop)
         # self.drop = drop
         # if self.drop is not None:
         #     self.dropout = nn.Dropout(drop)
 
-    def forward(self, x, s, c=[None,None,None,None]):
+    def forward(self, x, s, c=[None,None,None,None,None]):
         x = self.d_block1(x,s[0],False,c[0])
         x = self.d_block2(x,s[1],False,c[1])       
         x = self.d_block3(x,s[2],False,c[2])
         # if self.drop is not None and self.training:
         #     x = self.dropout(x)        
         x = self.d_block4(x,s[3],True,c[3])
-        if self.drop is not None:
-            x = self.dropout(x) 
+        # if self.drop is not None:
+        #     x = self.dropout(x) 
 
-        return x # This is required to boost the accuracy
+        # x = self.d_block1(x,s[0],False,c[0])
+        # x = self.d_block2(x,s[1],False,c[1])       
+        # x = self.d_block3(x,s[2],False,c[2])      
+        # x = self.d_block4(x,s[3],False,c[3])
+        # x = self.d_block5(x,s[4],True,c[4])
+        return x
 
 class Decoder2(nn.Module):
     def __init__(self,ds_ksize, ds_stride, num_output, skip=True, drop=None): # num_techniques?
@@ -302,12 +321,14 @@ class Decoder2(nn.Module):
 class Spec2Roll(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
-        self.state_group_encoder = Encoder1(4, ds_ksize, ds_stride, drop=0.5)
-        self.state_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)#, skip=False)
-        self.group_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)
-        self.note_tech_encoder = Encoder1(6, ds_ksize, ds_stride, drop=0.5)
-        self.note_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)
-        self.tech_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)
+        # self.state_group_encoder = Encoder1(4, ds_ksize, ds_stride, drop=0.3)
+        # # self.state_group_decoder = Decoder1(ds_ksize, ds_stride, 2, drop=0.5)
+        # self.state_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)
+        # self.group_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.3)
+        # self.note_tech_encoder = Encoder1(6, ds_ksize, ds_stride, drop=0.3)
+        # # self.note_tech_decoder = Decoder1(ds_ksize, ds_stride, 2, drop=0.5)
+        # self.note_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)
+        # self.tech_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.3)
         ##### middle state and group setting #####
 
         # self.mid_state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
@@ -318,47 +339,48 @@ class Spec2Roll(nn.Module):
         # self.group_fc = nn.Linear(50, 4)
 
         ##### tech SOTA setting #####
-        # self.state_group_encoder = Encoder2(4, ds_ksize, ds_stride, drop=0.2)
-        # self.state_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)#, skip=False)
-        # self.group_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)
-        # self.note_tech_encoder = Encoder2(6, ds_ksize, ds_stride, drop=0.1)
-        # self.note_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)
-        # self.tech_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)
+        self.state_group_encoder = Encoder2(4, ds_ksize, ds_stride, drop=0.2)
+        self.state_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)#, skip=False)
+        self.group_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)
+        self.note_tech_encoder = Encoder2(6, ds_ksize, ds_stride, drop=0.1)
+        self.note_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)
+        self.tech_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)
 
-        self.state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=2, dropout=0.5)
-        self.group_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=4, dropout=0.5)
-        self.note_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0)
-        self.tech_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0)
-        # self.state_note_attention = Stack(input_size=100, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
-        # self.group_tech_attention = Stack(input_size=59, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
-        self.state_note_attention = Stack(input_size=52, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.5)
-        self.group_tech_attention = Stack(input_size=13, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.5)
+        self.state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=3, dropout=0.2)
+        self.group_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=4, dropout=0.2)
+        self.note_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
+        self.tech_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
+        self.state_note_attention = Stack(input_size=53, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
+        self.group_tech_attention = Stack(input_size=63, hidden_dim=768, attn_size=31, attn_group=6, output_dim=9, dropout=0.2)
 
         # self.softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, x, training):
+        # # state note U-net
+        # state_group_enc,s,c = self.state_group_encoder(x)
+        # # state_group_post = self.state_group_decoder(state_group_enc,s,c)
+        # # state_post = state_group_post[:,0,:,:].unsqueeze(1)
+        # # group_post = state_group_post[:,1,:,:].unsqueeze(1)
+        # state_post = self.state_decoder(state_group_enc,s,c)
+        # group_post = self.group_decoder(state_group_enc,s,c)
+        # # group tech U-net
+        # x1 = torch.cat((state_post.detach(), group_post.detach(), x), 1)
+        # note_tech_enc,s,c = self.note_tech_encoder(x1)
+        # # note_tech_post = self.note_tech_decoder(note_tech_enc,s,c)
+        # # note_post = note_tech_post[:,0,:,:].unsqueeze(1)
+        # # tech_post = note_tech_post[:,1,:,:].unsqueeze(1)
+        # note_post = self.note_decoder(note_tech_enc,s,c)
+        # tech_post = self.tech_decoder(note_tech_enc,s,c)
+
         # state note U-net
         state_group_enc,s,c = self.state_group_encoder(x)
-        state_post = self.state_decoder(state_group_enc,s,c) # do not pass c -> no skip
+        state_post = self.state_decoder(state_group_enc,s,c)
         group_post = self.group_decoder(state_group_enc,s,c)
         # group tech U-net
         x1 = torch.cat((state_post.detach(), group_post.detach(), x), 1)
         note_tech_enc,s,c = self.note_tech_encoder(x1)
         note_post = self.note_decoder(note_tech_enc,s,c)
         tech_post = self.tech_decoder(note_tech_enc,s,c)
-
-        # state_enc,s,c = self.state_encoder(x)
-        # state_post = self.state_decoder(state_enc,s,c) # do not pass c -> no skip
-        # x1 = torch.cat((state_post, x), 1).detach()
-        # note_group_enc,s,c = self.note_group_encoder(x1)
-        # note_group_post = self.note_group_decoder(note_group_enc,s,c)
-        # note_post = note_group_post[:,0,:,:].unsqueeze(1)
-        # group_post = note_group_post[:,1,:,:].unsqueeze(1)
-        # # note_post = self.note_decoder(note_group_enc,s,c)
-        # # group_post = self.group_decoder(note_group_enc,s,c)
-        # x2 = torch.cat((state_post, group_post, note_post, x), 1).detach()
-        # tech_enc,s,c = self.tech_encoder(x2)
-        # tech_post = self.tech_decoder(tech_enc,s,c)
 
         #################### attention #########################
         # state_post_ab, a = self.mid_state_attention(state_post.squeeze(1))
@@ -378,8 +400,12 @@ class Spec2Roll(nn.Module):
         group_prob = torch.sigmoid(group_post_a.detach())
         note_prob = torch.sigmoid(note_post_ab)
         tech_prob = torch.sigmoid(tech_post_ab)
+
+        note_prob_tech = note_prob.detach()
+
         state_note_cat = torch.cat((state_prob.squeeze(1), note_prob.squeeze(1)), 2)
-        group_tech_cat = torch.cat((group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
+        # group_tech_cat = torch.cat((group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
+        group_tech_cat = torch.cat((note_prob_tech.squeeze(1), group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
         note_post_a, a = self.state_note_attention(state_note_cat)
         tech_post_a, a = self.group_tech_attention(group_tech_cat)
 
@@ -561,14 +587,14 @@ class UNet(nn.Module):
         # group_label = label[:, :, 50:54]
         # note_label = label[:, :, 54:104]
         # tech_label = label[:, :, 104:]
-        state_label = label[:, :, :2]
-        group_label = label[:, :, 2:6]
-        note_label = label[:, :, 6:56]
-        tech_label = label[:, :, 56:]
-        # state_label = label[:, :, :3]
-        # group_label = label[:, :, 3:7]
-        # note_label = label[:, :, 7:57]
-        # tech_label = label[:, :, 57:]
+        # state_label = label[:, :, :2]
+        # group_label = label[:, :, 2:6]
+        # note_label = label[:, :, 6:56]
+        # tech_label = label[:, :, 56:]
+        state_label = label[:, :, :3]
+        group_label = label[:, :, 3:7]
+        note_label = label[:, :, 7:57]
+        tech_label = label[:, :, 57:]
         # state_label = label[:, :, 0].flatten()
         # group_label = label[:, :, 1].flatten()
         # note_label = label[:, :, 2].flatten()
@@ -633,9 +659,9 @@ class UNet(nn.Module):
         spec_3 = self.spectrogram_3(audio)
         # log compression
         if self.log:
-            spec_1 = torch.log(1 + 5 * spec_1) # (spec_1 + 1e-5)
-            spec_2 = torch.log(1 + 5 * spec_2)
-            spec_3 = torch.log(1 + 5 * spec_3)
+            spec_1 = torch.log(1 + 10 * spec_1) # (spec_1 + 1e-5)
+            spec_2 = torch.log(1 + 10 * spec_2)
+            spec_3 = torch.log(1 + 10 * spec_3) # 1 + 5 * spec_3
         # Normalizing spectrograms
         spec_1 = self.normalize.transform(spec_1)
         spec_2 = self.normalize.transform(spec_2)
@@ -670,7 +696,7 @@ class UNet(nn.Module):
         # softmax = nn.Softmax(dim=-1)
         if self.training:
             predictions = {
-                    'note_state': pred[0].reshape(-1, 2),
+                    'note_state': pred[0].reshape(-1, 3),
                     'tech_group': pred[1].reshape(-1, 4),
                     'note': pred[2].reshape(-1, 50),
                     'tech': pred[3].reshape(-1, 9),
@@ -703,7 +729,7 @@ class UNet(nn.Module):
             # note_pred = softmax(pred[2])
             # tech_pred = softmax(pred[3])
             # testing
-            state_pred = state_pred.reshape(-1, 2)
+            state_pred = state_pred.reshape(-1, 3)
             state = []
             for s in state_pred:
                 if s[s.argmax()] < 0.4:

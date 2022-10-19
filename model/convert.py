@@ -2,6 +2,7 @@ from sklearn.metrics import confusion_matrix
 from mido import Message, MidiFile, MidiTrack
 import os
 from mir_eval.util import hz_to_midi, midi_to_hz
+from mir_eval.transcription import precision_recall_f1_overlap
 from collections import defaultdict
 import numpy as np
 import torch
@@ -49,12 +50,12 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
     labels = labels.type(torch.LongTensor).cuda()
     for i, (label, tech, note, note_state) in enumerate(zip(labels, preds['tech'], preds['note'], preds['note_state'])):
         # get label from one hot vectors
-        state_label = label[:,:2].argmax(axis=1)
-        note_label = label[:,6:56].argmax(axis=1)
-        tech_label = label[:,56:].argmax(axis=1)
-        # state_label = label[:,:3].argmax(axis=1)
-        # note_label = label[:,7:57].argmax(axis=1)
-        # tech_label = label[:,57:].argmax(axis=1)
+        # state_label = label[:,:2].argmax(axis=1)
+        # note_label = label[:,6:56].argmax(axis=1)
+        # tech_label = label[:,56:].argmax(axis=1)
+        state_label = label[:,:3].argmax(axis=1)
+        note_label = label[:,7:57].argmax(axis=1)
+        tech_label = label[:,57:].argmax(axis=1)
 
         # state_label = label[:,0]
         # note_label = label[:,2]
@@ -62,7 +63,7 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
         transcriptions = gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_label, note, tech_label, tech, i, ep)
 
     # get macro metrics
-    tech_label = labels[:,:,56:].argmax(axis=2).flatten()
+    tech_label = labels[:,:,57:].argmax(axis=2).flatten()
     # tech_label = labels[:,:,3].flatten()
     tech_pred = preds['tech'].flatten()
     cm_dict = get_confusion_matrix(tech_label.cpu().numpy(), tech_pred.cpu().numpy(), list(technique_dict.keys()))
@@ -112,37 +113,6 @@ def get_confusion_matrix(correct_labels, predict_labels, labels):
 
     return cm_dict
 
-# def get_confusion_matrix(correct_labels, predict_labels, labels):
-#     """
-#     Generate confusion matrix, recall and precision
-#     Parameters
-#     ----------
-#     correct_labels: 
-#     predict_labels: 
-#     Returns
-#     -------
-#     cm: 
-#     cm_recall:
-#     cm_precision:
-#     """
-#     cm = confusion_matrix(correct_labels, predict_labels, labels=labels)
-#     cm_new = []
-#     for i in range(len(cm)):
-#         if i == 0:
-#             continue
-#         cm_new.append(cm[i][1:])
-#     cm_new = np.reshape(cm_new, (len(labels)-1, len(labels)-1))
-
-#     cm_recall, cm_precision = get_prec_recall(cm_new)
-
-#     cm_dict = {
-#         'cm': cm_new,
-#         'Precision': cm_precision,
-#         'Recall': cm_recall,
-#     }
-
-#     return cm_dict
-
 def evaluate_frame_accuracy(correct_labels, predict_labels):
     matched = 0
     for ref, est in zip(correct_labels, predict_labels):
@@ -164,6 +134,54 @@ def evaluate_frame_accuracy_per_tech(techniques, correct_labels, predict_labels)
         accuracy[i] = (accuracy_per_tech[i][1] / accuracy_per_tech[i][0]) if accuracy_per_tech[i][0] != 0 else 0
     
     return accuracy
+
+def evaluate_technique(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dict, metrics, macro=False):
+    '''
+    0: 'no tech',
+    1: 'slide',
+    2: 'bend',
+    3: 'trill',
+    4: 'mute',
+    5: 'pull',
+    6: 'harmonic',
+    7: 'hammer',
+    8: 'tap'
+    '''
+    tech_gt = {
+        0: [],
+        1: [],
+        2: [],
+        3: [],
+        4: [], 
+        5: [],
+        6: [],
+        7: [],
+        8: []
+    }
+    tech_pred = {
+        0: [],
+        1: [],
+        2: [],
+        3: [],
+        4: [], 
+        5: [],
+        6: [],
+        7: [],
+        8: []
+    }
+    m = ''
+    if macro:
+        m = 'macro_' 
+    for i, tech in enumerate(tech_ref):
+        tech_gt[tech].append(i)
+    for i, tech in enumerate(tech_est):
+        tech_pred[tech].append(i)
+    for key, value in technique_dict.items():
+        p, r, f, o = precision_recall_f1_overlap(tech_i_ref[tech_gt[key]], tech_ref[tech_gt[key]], tech_i_est[tech_pred[key]], tech_est[tech_pred[key]], onset_tolerance=0.1, pitch_tolerance=0, offset_ratio=None)
+        metrics[f'metric/{value}/{m}precision_note'].append(p)
+        metrics[f'metric/{value}/{m}recall_note'].append(r)
+        metrics[f'metric/{value}/{m}f1_note'].append(f)
+    return metrics
 
 def extract_technique(techs, states=None, scale2time=True):
     """

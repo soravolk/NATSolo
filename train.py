@@ -16,6 +16,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils import clip_grad_norm_
+import torch.nn as nn
 from tqdm import tqdm
 from itertools import cycle
 
@@ -37,7 +38,8 @@ saving_freq = 200
 @ex.config
 def config():
     root = 'runs'
-    device = 'cuda:0'
+    # device = 'cuda:0'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log = True
     w_size = 31
     spec = 'Mel'
@@ -55,10 +57,10 @@ def config():
     train_batch_size = 8
     val_batch_size = 4
     sequence_length = 96000 #163840 # 327680
-    if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
-        batch_size //= 2
-        sequence_length //= 2
-        print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
+    # if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
+    #     batch_size //= 2
+    #     sequence_length //= 2
+    #     print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
     epoches = 8000 # 20000
     step_size_up = 100
     max_lr = 1e-4
@@ -70,7 +72,7 @@ def config():
     validation_length = sequence_length
     refresh = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_TwoStateL2OneDropout0.5AttentionS0.5G0.5N0T0SN0.5GT0.5WeightMoteForSmallClasses'
+    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_TechSOTASettingButThreeStatesNoteGroupTechAttentionForTech'
     logdir = f'{root}/{model_save_dir}'
     ex.observers.append(FileStorageObserver.create(f'checkpoint/{model_save_dir}'))
 
@@ -278,7 +280,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
                     mode=mode, spec=spec, device=device, XI=XI, eps=eps, weights=bce_weights)
     model.to(device)
     if resume_iteration is None:  
-        optimizer = torch.optim.Adam(model.parameters(), learning_rate,  weight_decay=weight_decay) #eps=1e-06
+        optimizer = torch.optim.Adam(model.parameters(), learning_rate)#,  weight_decay=weight_decay) #eps=1e-06
         resume_iteration = 0
     else: # Loading checkpoints and continue training
         model_path = os.path.join('checkpoint', f'{resume_iteration}.pt')

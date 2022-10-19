@@ -5,10 +5,6 @@ import librosa
 import librosa.display
 import matplotlib.pyplot as plt
 from model.UNet import UNet
-# from onsets_and_frames.onsets_and_frames import *
-# from onsets_and_frames.onsets_and_frames.transcriber import OnsetsAndFrames
-from onsets_and_frames.evaluate import evaluate
-from onsets_and_frames.onsets_and_frames.dataset import Solo as Solo_OF
 from model.dataset import Solo
 from model.convert import *
 from model.evaluate_functions import *
@@ -26,9 +22,9 @@ def parse():
 
 def load_data(audio_type, device, name):
     if name == 'unet':
-        return Solo(folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
-    elif name == 'of':
-        return Solo_OF(path='./Solo', folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
+        return Solo(path='./Solo', folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
+    # elif name == 'solola':
+    #     return Solo(path='./GN', folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
 
 def load_model(path, device, name):
     ds_ksize, ds_stride = 2, 2
@@ -207,7 +203,7 @@ def evaluation(model, testing_set, save_path, eval_note, eval_tech, name):
     model.eval()
     with torch.no_grad():
         if name == 'unet':
-            metrics, cm_dict_all, inferences, spec, prob = evaluate_prediction(testing_set, model, ep, technique_dict, save_path=save_path, testing=True, eval_not=eval_note, eval_tech=eval_tech)
+            metrics, cm_dict_all, inferences, spec, prob = evaluate_prediction(testing_set, model, ep, technique_dict, save_path=save_path, testing=True, eval_note=eval_note, eval_tech=eval_tech)
         elif name == 'of':
             metrics = evaluate(testing_set, model)
         save_metrics(metrics, args.save_path)
