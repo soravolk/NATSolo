@@ -101,7 +101,7 @@ def plot_transcription_A(writer, ep, figname, note_interval, note, tech_interval
 
 def plot_transcription(writer, ep, figname, mel, note_interval, note, tech_interval, tech, state):
     tech_trans = {
-        0: 'n',
+        0: '0',
         1: 's',
         2: 'b',
         3: '~',
@@ -110,7 +110,7 @@ def plot_transcription(writer, ep, figname, mel, note_interval, note, tech_inter
         6: '<>',
         7: 'h',
         8: 't',
-        9: '0'
+        9: 'n'
     }
     mel = mel.cpu().detach().numpy()
     fig = plt.figure(constrained_layout=True, figsize=(48,25))
@@ -172,7 +172,7 @@ def plot_confusion_matrix(cm, writer, ep, title='Prediction', figure_name='MyFig
         - Currently, some of the ticks dont line up due to rotations.
     '''
     technique_dict = {
-        0: 'normal',
+        0: 'no tech',
         1: 'slide',
         2: 'bend',
         3: 'trill',
@@ -181,7 +181,7 @@ def plot_confusion_matrix(cm, writer, ep, title='Prediction', figure_name='MyFig
         6: 'harmonic',
         7: 'hammer',
         8: 'tap',
-        9: 'no tech',
+        9: 'normal',
     }
 
     np.set_printoptions(precision=2)

@@ -1,6 +1,7 @@
 import os
 from glob import glob
 from tqdm import tqdm
+from collections import defaultdict
 from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
 import soundfile
@@ -11,8 +12,56 @@ from torch import nn
 from abc import abstractmethod
 from .constants import *
 
+
+def parse_tech_and_group(all_steps, all_tech, tech_label, tech_group_label, hop, sr):
+    for start, end, technique in all_tech:
+        # if technique == 0: # normal
+        #     continue
+
+        left = int(round(start * sr / hop)) # Convert time to time step
+        left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
+
+        right = int((end * sr) // hop)
+        right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
+        
+        # silent_label[left - 2: right + 2] = 1 # not silent
+        if technique in [1, 2, 3]: # slide, bend, trill
+            tech_group_label[left:right] = 1
+        elif technique in [5, 7, 8]: # pull, hammer, tap
+            tech_group_label[left:right] = 2
+        elif technique in [4, 6]: # harmonic, mute
+            tech_group_label[left:right] = 3
+        
+        tech_label[left:right] = technique if technique != 0 else 9
+    return tech_label, tech_group_label
+
+def parse_note_and_state(all_steps, all_note, note_label, note_state_label, hop, sr):
+    for start, end, note in all_note:
+        left = int(round(start * sr / hop)) # Convert time to time step
+        left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
+
+        right = int((end * sr) // hop)
+        right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
+
+        if left + 3 > right:
+            note_state_label[left: right - 1] = 1
+            note_state_label[right - 1] = 0
+        else:
+            note_state_label[left: left + 4] = 1 # onset
+            note_state_label[left + 4: right - 2] = 2 # activate
+            note_state_label[right - 2: right] = 0
+        # if left - 1 > 0:
+        #     note_state_label[left-1] = 1
+        # if left + 3 > right:
+        #     note_state_label[left: right] = note
+        # else:
+        #     note_state_label[left: left + 4] = note # onset
+
+        note_label[left:right] = note
+    return note_label - LOGIC_MIDI, note_state_label
+
 class AudioDataset(Dataset):
-    def __init__(self, path, folders=None, sequence_length=None, seed=42, refresh=False, device='cpu', audio_type='flac'):
+    def __init__(self, path, folders=None, sequence_length=None, seed=42, refresh=False, device='cpu', audio_type='flac', sr=SAMPLE_RATE, hop=HOP_LENGTH):
         self.path = path
         self.folders = folders if folders is not None else self.available_folders()
         
@@ -21,6 +70,8 @@ class AudioDataset(Dataset):
         self.random = np.random.RandomState(seed)
         self.refresh = refresh
         self.audio_type = audio_type
+        self.sr = sr
+        self.hop = hop
 
         self.data = []
         print(f"Loading {len(self.folders)} folder{'s' if len(self.folders) > 1 else ''} "
@@ -37,12 +88,12 @@ class AudioDataset(Dataset):
             # audio samples
             audio_length = len(data['audio'])
             # convert to time step
-            step_begin = self.random.randint(audio_length - self.sequence_length) // HOP_LENGTH
-            all_steps = self.sequence_length // HOP_LENGTH
+            step_begin = self.random.randint(audio_length - self.sequence_length) // self.hop
+            all_steps = self.sequence_length // self.hop
             step_end = step_begin + all_steps
             # trim audio time to fit the frame
-            begin = step_begin * HOP_LENGTH
-            end = step_end * HOP_LENGTH
+            begin = step_begin * self.hop
+            end = step_end * self.hop
             # end = begin + self.sequence_length
             result['audio'] = data['audio'][begin:end-1].to(self.device)
             # for labelled data
@@ -96,7 +147,8 @@ class AudioDataset(Dataset):
         #     return torch.load(saved_data_path)
         # Otherwise, create the .pt files
         audio, sr = soundfile.read(audio_path, dtype='int16')
-        assert sr == SAMPLE_RATE
+        # print(self.sr)
+        # assert sr == self.sr
         # convert numpy array to pytorch tensor
         # zero padding
         audio = torch.ShortTensor(audio) 
@@ -124,10 +176,10 @@ class AudioDataset(Dataset):
             assert(audio_path.split("/")[-1][:-3] == note_tsv_path.split("/")[-1][:-3])
 
         # labels' time steps
-        all_steps = audio_length // HOP_LENGTH
+        all_steps = int(audio_length // self.hop)
         # 0 means silence (not lead guitar)
         tech_group_label = torch.zeros(all_steps, dtype=torch.int8)
-        tech_label = torch.ones(all_steps, dtype=torch.int8) * 9
+        tech_label = torch.zeros(all_steps, dtype=torch.int8)
         note_state_label = torch.zeros(all_steps, dtype=torch.int8)
         note_label = torch.ones(all_steps, dtype=torch.int8) * 51
 
@@ -135,56 +187,16 @@ class AudioDataset(Dataset):
         all_tech = np.loadtxt(tech_tsv_path, delimiter='\t', skiprows=1)
         all_note = np.loadtxt(note_tsv_path, delimiter='\t', skiprows=1)
         # processing tech labels
-        for start, end, technique in all_tech:
-            # if technique == 0: # normal
-            #     continue
-
-            left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
-            left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
-
-            right = int((end * SAMPLE_RATE) // HOP_LENGTH)
-            right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
-            
-            # silent_label[left - 2: right + 2] = 1 # not silent
-            if technique in [1, 2, 3]: # slide, bend, trill
-                tech_group_label[left:right] = 1
-            elif technique in [5, 7, 8]: # pull, hammer, tap
-                tech_group_label[left:right] = 2
-            elif technique in [4, 6]: # harmonic, mute
-                tech_group_label[left:right] = 3
-
-            tech_label[left:right] = technique
-
+        tech_label, tech_group_label = parse_tech_and_group(all_steps, all_tech, tech_label, tech_group_label, self.hop, self.sr)
         # processing note labels
-        for start, end, note in all_note:
-            left = int(round(start * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
-            left = min(all_steps, left) # Ensure the time step of onset would not exceed the last time step
-
-            right = int((end * SAMPLE_RATE) // HOP_LENGTH)
-            right = min(all_steps, right) # Ensure the time step of frame would not exceed the last time step
-
-            if left + 3 > right:
-                note_state_label[left: right - 1] = 1
-                note_state_label[right - 1] = 0
-            else:
-                note_state_label[left: left + 4] = 1 # onset
-                note_state_label[left + 4: right - 2] = 2 # activate
-                note_state_label[right - 2: right] = 0
-            # if left - 1 > 0:
-            #     note_state_label[left-1] = 1
-            # if left + 3 > right:
-            #     note_state_label[left: right] = note
-            # else:
-            #     note_state_label[left: left + 4] = note # onset
-
-            note_label[left:right] = note
+        note_label, note_state_label = parse_note_and_state(all_steps, all_note, note_label, note_state_label, self.hop, self.sr)
         
         ##### concat all one-hot label #####
         note_state_label_onehot = F.one_hot(note_state_label.to(torch.int64), num_classes=3)
         # note_state_label_onehot = F.one_hot(note_state_label.to(torch.int64) - 51, num_classes=50)
         tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=4)
         # 0 % 51 = 0 means no note (the lowest note is 52)
-        note_label_onehot = F.one_hot(note_label.to(torch.int64) - 51, num_classes=50)
+        note_label_onehot = F.one_hot(note_label.to(torch.int64), num_classes=50)
         tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=10)
         label = torch.cat((note_state_label_onehot, tech_group_label_onehot, note_label_onehot, tech_label_onehot), 1)
         # label = torch.cat((note_state_label.unsqueeze(1), tech_group_label.unsqueeze(1), (note_label - 51).unsqueeze(1), tech_label.unsqueeze(1)), 1)
@@ -192,14 +204,14 @@ class AudioDataset(Dataset):
         torch.save(data, saved_data_path)
         return data
 
-class Solo(AudioDataset):
+class Solo(AudioDataset): #seed=42
     def __init__(self, path='./Solo', folders=None, sequence_length=None, overlap=True,
-                 seed=42, refresh=False, device='cpu', audio_type='wav'):
-        super().__init__(path, folders, sequence_length, seed, refresh, device)
+                 seed=50, refresh=False, device='cpu', audio_type='flac', sr=SAMPLE_RATE, hop=HOP_LENGTH):
+        super().__init__(path, folders, sequence_length, seed, refresh, device, audio_type, sr, hop)
         self.audio_type = audio_type
     @classmethod
     def available_folders(cls):
-        return ['train', 'test']
+        return ['train', 'valid']
     
     def appending_wav_tsv(self, folder):
         audio = list(glob(os.path.join(self.path, f"{folder}/{self.audio_type}", f'*.{self.audio_type}')))
@@ -214,9 +226,9 @@ class Solo(AudioDataset):
             if self.audio_type == 'flac':
                 tech_name = self.path + f"/{folder}/tech_tsv/" + file.split("/")[-1][:-4] + 'tsv'
                 note_name = self.path + f"/{folder}/note_tsv/" + file.split("/")[-1][:-4] + 'tsv'
-            else:
+            elif self.audio_type == 'wav':
                 tech_name = self.path + f"/{folder}/tech_tsv/" + file.split("/")[-1][:-3] + 'tsv'
-                note_name = self.path + f"/{folder}/note_tsv/" + file.split("/")[-1][:-4] + 'tsv'
+                note_name = self.path + f"/{folder}/note_tsv/" + file.split("/")[-1][:-3] + 'tsv'
             tech_tsvs.append(tech_name)
             note_tsvs.append(note_name)
 
@@ -248,14 +260,49 @@ def prepare_VAT_dataset(sequence_length, validation_length, refresh, device, aud
     
     return l_set, ul_set, valid_set
     
+def tech_weights_by_group(y):
+    group_member = {
+        0: [0, 9],
+        1: [1, 2, 3],
+        2: [5, 7, 8],
+        3: [4, 6]
+    }
+    group = defaultdict(list)
+
+    for i in y:
+        if i in group_member[0]:
+            group[0].append(i)
+        elif i in group_member[1]:
+            group[1].append(i)
+        elif i in group_member[2]:
+            group[2].append(i)
+        elif i in group_member[3]:
+            group[3].append(i)
+
+    group_0_weights = compute_class_weight('balanced', np.unique(group[0]), group[0])
+    group_1_weights = compute_class_weight('balanced', np.unique(group[1]), group[1])
+    group_2_weights = compute_class_weight('balanced', np.unique(group[2]), group[2])
+    group_3_weights = compute_class_weight('balanced', np.unique(group[3]), group[3])
+    # print('=========== 0: ', np.unique(group[0]))
+    # print('=========== 1: ', np.unique(group[1]))
+    # print('=========== 2: ', np.unique(group[2]))
+    # print('=========== 3: ', np.unique(group[3]))
+    tech_weights = np.zeros(10)
+    tech_weights[0] = group_0_weights[0]
+    tech_weights[1] = group_1_weights[0]
+    tech_weights[2] = group_1_weights[1]
+    tech_weights[3] = group_1_weights[2]
+    tech_weights[4] = group_3_weights[0]
+    tech_weights[5] = group_2_weights[0]
+    tech_weights[6] = group_3_weights[1]
+    tech_weights[7] = group_2_weights[1]
+    tech_weights[8] = group_2_weights[2]
+    tech_weights[9] = group_0_weights[1]
+
+    return tech_weights
+
 def compute_dataset_weight(device):
     train_set = Solo(folders=['train_label'], sequence_length=None, device=device, refresh=None)
-
-    # y = []
-    # for data in train_set:
-    #     y.extend(data['tech_label'].detach().cpu().numpy())
-    # tech_weights = compute_class_weight('balanced', np.unique(y), y)
-    # tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
 
     y_1 = []
     y_2 = []
@@ -277,6 +324,7 @@ def compute_dataset_weight(device):
     # tech_weights[5] = 4 * tech_weights[5]
     # tech_weights[7] = 4 * tech_weights[7]
     # tech_weights[8] = 4 * tech_weights[8]
+    # tech_weights = tech_weights_by_group(y_3)
     # silent_weights = torch.ones(2, dtype=torch.float).to(device) * 2
     # tech_state_weights = torch.ones(3, dtype=torch.float).to(device)
     # tech_weights = torch.ones(10, dtype=torch.float).to(device) 

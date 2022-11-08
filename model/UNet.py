@@ -8,7 +8,6 @@ from nnAudio import features
 from .constants import *
 from .utils import Normalization
 
-### self attention for U-net ###
 class MutliHeadAttention1D(nn.Module):
     def __init__(self, in_features, out_features, kernel_size, stride=1, groups=1, position=True, bias=False):
         """kernel_size is the 1D local attention window size"""
@@ -51,7 +50,6 @@ class MutliHeadAttention1D(nn.Module):
         q_out = self.W_q(x)
         k_out = self.W_k(padded_x)
         v_out = self.W_v(padded_x)
-        
         k_out = k_out.unfold(1, self.kernel_size, self.stride)
         # (batch, L, feature, local_window)
         
@@ -62,6 +60,7 @@ class MutliHeadAttention1D(nn.Module):
             k_out = k_out + self.rel # relative position?
 
         k_out = k_out.contiguous().view(batch, seq_len, self.groups, self.out_features // self.groups, -1)
+
         v_out = v_out.contiguous().view(batch, seq_len, self.groups, self.out_features // self.groups, -1)
         # (batch, L, n_heads, feature_per_head, local_window)
         
@@ -146,17 +145,6 @@ class Encoder1(nn.Module):
         self.conv1 = nn.Conv2d(64,64, kernel_size=(3,3), padding=(1,1)) 
         self.conv2 = nn.Conv2d(32,32, kernel_size=(3,3), padding=(1,1)) 
         self.conv3 = nn.Conv2d(16,16, kernel_size=(3,3), padding=(1,1)) 
-        # # self.drop = drop
-        # # if self.drop is not None:
-        # #     self.dropout = nn.Dropout(drop)
-        # self.block1 = block(inp,32,(3,3),(1,1),ds_ksize, ds_stride)
-        # self.block2 = block(32,64,(3,3),(1,1),ds_ksize, ds_stride)
-        # self.block3 = block(64,128,(3,3),(1,1),ds_ksize, ds_stride)
-        # self.block4 = block(128,256,(3,3),(1,1),ds_ksize, ds_stride, drop=drop)
-
-        # self.conv1 = nn.Conv2d(128,128, kernel_size=(3,3), padding=(1,1)) 
-        # self.conv2 = nn.Conv2d(64,64, kernel_size=(3,3), padding=(1,1)) 
-        # self.conv3 = nn.Conv2d(32,32, kernel_size=(3,3), padding=(1,1)) 
         # self.drop = drop
         # if self.drop is not None:
         #     self.dropout = nn.Dropout(drop)
@@ -174,17 +162,6 @@ class Encoder1(nn.Module):
         skip2=self.conv2(x2) 
         skip1=self.conv3(x1) 
         return x4,[s4,s3,s2,s1],[skip3,skip2,skip1,x]
-
-        # x1,idx1,s1 = self.block1(x)
-        # x2,idx2,s2 = self.block2(x1)
-        # x3,idx3,s3 = self.block3(x2)
-        # x4,idx4,s4 = self.block4(x3)
-        # x5,idx5,s5 = self.block5(x4)
-        # skip4=self.conv1(x4) 
-        # skip3=self.conv2(x3) 
-        # skip2=self.conv3(x2) 
-        # skip1=self.conv4(x1)
-        # return x5,[s5,s4,s3,s2,s1],[skip4,skip3,skip2,skip1,x]
 
 class Encoder2(nn.Module):
     def __init__(self,inp,ds_ksize, ds_stride, drop=None):
@@ -267,13 +244,6 @@ class Decoder1(nn.Module):
         self.d_block2 = d_block(96,32,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         self.d_block3 = d_block(48,16,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
         self.d_block4 = d_block(16,num_output,True,(3,3),(1,1),ds_ksize, ds_stride, skip, drop=drop)
-        # # self.drop = drop
-        # # if self.drop is not None:
-        # #     self.dropout = nn.Dropout(drop)
-        # self.d_block1 = d_block(384,128,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        # self.d_block2 = d_block(192,64,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        # self.d_block3 = d_block(96,32,False,(3,3),(1,1),ds_ksize, ds_stride, skip)
-        # self.d_block4 = d_block(32,num_output,True,(3,3),(1,1),ds_ksize, ds_stride, skip, drop=drop)
         # self.drop = drop
         # if self.drop is not None:
         #     self.dropout = nn.Dropout(drop)
@@ -288,11 +258,6 @@ class Decoder1(nn.Module):
         # if self.drop is not None:
         #     x = self.dropout(x) 
 
-        # x = self.d_block1(x,s[0],False,c[0])
-        # x = self.d_block2(x,s[1],False,c[1])       
-        # x = self.d_block3(x,s[2],False,c[2])      
-        # x = self.d_block4(x,s[3],False,c[3])
-        # x = self.d_block5(x,s[4],True,c[4])
         return x
 
 class Decoder2(nn.Module):
@@ -321,23 +286,6 @@ class Decoder2(nn.Module):
 class Spec2Roll(nn.Module):
     def __init__(self, ds_ksize, ds_stride, complexity=4):
         super().__init__() 
-        # self.state_group_encoder = Encoder1(4, ds_ksize, ds_stride, drop=0.3)
-        # # self.state_group_decoder = Decoder1(ds_ksize, ds_stride, 2, drop=0.5)
-        # self.state_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)
-        # self.group_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.3)
-        # self.note_tech_encoder = Encoder1(6, ds_ksize, ds_stride, drop=0.3)
-        # # self.note_tech_decoder = Decoder1(ds_ksize, ds_stride, 2, drop=0.5)
-        # self.note_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.5)
-        # self.tech_decoder = Decoder1(ds_ksize, ds_stride, 1, drop=0.3)
-        ##### middle state and group setting #####
-
-        # self.mid_state_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
-        # self.mid_group_attention = Stack(input_size=N_BINS, hidden_dim=768, attn_size=31, attn_group=6, output_dim=50, dropout=0.2)
-        # self.state_attention = Stack(input_size=50, hidden_dim=768, attn_size=31, attn_group=6, output_dim=2, dropout=0.2)
-        # self.group_attention = Stack(input_size=50, hidden_dim=768, attn_size=31, attn_group=6, output_dim=4, dropout=0.2)
-        # self.state_fc = nn.Linear(50, 2)
-        # self.group_fc = nn.Linear(50, 4)
-
         ##### tech SOTA setting #####
         self.state_group_encoder = Encoder2(4, ds_ksize, ds_stride, drop=0.2)
         self.state_decoder = Decoder2(ds_ksize, ds_stride, 1, drop=0.3)#, skip=False)
@@ -356,41 +304,18 @@ class Spec2Roll(nn.Module):
         # self.softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, x, training):
-        # # state note U-net
-        # state_group_enc,s,c = self.state_group_encoder(x)
-        # # state_group_post = self.state_group_decoder(state_group_enc,s,c)
-        # # state_post = state_group_post[:,0,:,:].unsqueeze(1)
-        # # group_post = state_group_post[:,1,:,:].unsqueeze(1)
-        # state_post = self.state_decoder(state_group_enc,s,c)
-        # group_post = self.group_decoder(state_group_enc,s,c)
-        # # group tech U-net
-        # x1 = torch.cat((state_post.detach(), group_post.detach(), x), 1)
-        # note_tech_enc,s,c = self.note_tech_encoder(x1)
-        # # note_tech_post = self.note_tech_decoder(note_tech_enc,s,c)
-        # # note_post = note_tech_post[:,0,:,:].unsqueeze(1)
-        # # tech_post = note_tech_post[:,1,:,:].unsqueeze(1)
-        # note_post = self.note_decoder(note_tech_enc,s,c)
-        # tech_post = self.tech_decoder(note_tech_enc,s,c)
-
         # state note U-net
         state_group_enc,s,c = self.state_group_encoder(x)
         state_post = self.state_decoder(state_group_enc,s,c)
         group_post = self.group_decoder(state_group_enc,s,c)
         # group tech U-net
         x1 = torch.cat((state_post.detach(), group_post.detach(), x), 1)
+        # x1 = torch.cat((state_post.detach(), x), 1)
         note_tech_enc,s,c = self.note_tech_encoder(x1)
         note_post = self.note_decoder(note_tech_enc,s,c)
         tech_post = self.tech_decoder(note_tech_enc,s,c)
 
         #################### attention #########################
-        # state_post_ab, a = self.mid_state_attention(state_post.squeeze(1))
-        # group_post_ab, a = self.mid_group_attention(group_post.squeeze(1))
-        # state_post_a, _ = self.state_attention(state_post_ab)
-        # group_post_a, _ = self.group_attention(group_post_ab)
-
-        # state_post_a = self.dropout(self.state_fc(state_post_ab))
-        # group_post_a = self.dropout(self.group_fc(group_post_ab))
-
         state_post_a, a = self.state_attention(state_post.squeeze(1))
         group_post_a, a = self.group_attention(group_post.squeeze(1))
         note_post_ab, a = self.note_attention(note_post.squeeze(1))
@@ -404,13 +329,14 @@ class Spec2Roll(nn.Module):
         note_prob_tech = note_prob.detach()
 
         state_note_cat = torch.cat((state_prob.squeeze(1), note_prob.squeeze(1)), 2)
-        # group_tech_cat = torch.cat((group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
-        group_tech_cat = torch.cat((note_prob_tech.squeeze(1), group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
+        # tech_cat = torch.cat((note_prob_tech.squeeze(1), tech_prob.squeeze(1)), 2)
+        tech_cat = torch.cat((note_prob_tech.squeeze(1), group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
+        # tech_cat = torch.cat((group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
         note_post_a, a = self.state_note_attention(state_note_cat)
-        tech_post_a, a = self.group_tech_attention(group_tech_cat)
+        tech_post_a, a = self.group_tech_attention(tech_cat)
 
         return (state_post_a, group_post_a, note_post_a, tech_post_a, note_post_ab, tech_post_ab), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
-        # return (state_post_a, group_post_a, note_post_a, tech_post_a, note_post_ab, tech_post_ab, state_post_ab, group_post_ab), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
+        # return (state_post_a, state_post_a, note_post_a, tech_post_ab, note_post_ab, tech_post_ab), (state_post.squeeze(1), state_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
 
 ### VAT for unlabelled data ###
 ''' loss for VAT '''
@@ -583,22 +509,11 @@ class UNet(nn.Module):
         else:
             label = batch['label'] # tech + note
 
-        # state_label = label[:, :, :50]
-        # group_label = label[:, :, 50:54]
-        # note_label = label[:, :, 54:104]
-        # tech_label = label[:, :, 104:]
-        # state_label = label[:, :, :2]
-        # group_label = label[:, :, 2:6]
-        # note_label = label[:, :, 6:56]
-        # tech_label = label[:, :, 56:]
         state_label = label[:, :, :3]
         group_label = label[:, :, 3:7]
         note_label = label[:, :, 7:57]
         tech_label = label[:, :, 57:]
-        # state_label = label[:, :, 0].flatten()
-        # group_label = label[:, :, 1].flatten()
-        # note_label = label[:, :, 2].flatten()
-        # tech_label = label[:, :, 3].flatten()
+
         # technique = batch['technique'].flatten().type(torch.LongTensor).to(device)
         # use the weight for the unbalanced tech label
         if self.weights is not None:
@@ -689,10 +604,6 @@ class UNet(nn.Module):
         # group_criterion = CrossEntropyLoss(0.05, 4)
         # note_criterion = CrossEntropyLoss(0.05, 50)
         # tech_criterion = CrossEntropyLoss(0.05, 9)
-        # state_criterion = nn.CrossEntropyLoss(weight=state_weights)
-        # group_criterion = nn.CrossEntropyLoss(weight=group_weights)
-        # note_criterion = nn.CrossEntropyLoss()
-        # tech_criterion = nn.CrossEntropyLoss(weight=tech_weights)
         # softmax = nn.Softmax(dim=-1)
         if self.training:
             predictions = {
@@ -703,11 +614,11 @@ class UNet(nn.Module):
                     'r_adv': r_adv,
                     }
             losses = {
-                    #'loss/train_reconstruct_notepost': F.mse_loss(post[2], post[-1].detach()),
                     'loss/train_state': 3 * F.binary_cross_entropy_with_logits(pred[0], state_label, pos_weight=state_weights),
                     'loss/train_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label, pos_weight=group_weights),
                     'loss/train_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
                     'loss/train_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label, pos_weight=tech_weights),
+
                     # 'loss/train_state': 3 * state_criterion(pred[0].reshape(-1,50), state_label.reshape(-1,50)),#, weight=state_weights),
                     # 'loss/train_group': 3 * group_criterion(pred[1].reshape(-1,4), group_label.reshape(-1,4).argmax(axis=-1)),#, weight=group_weights),
                     # 'loss/train_note': note_criterion(pred[2].reshape(-1,50), note_label.reshape(-1,50).argmax(axis=-1)),
@@ -720,7 +631,7 @@ class UNet(nn.Module):
             return predictions, losses
         else:
             bins = state_label.shape[-2]   
-            state_pred = torch.sigmoid(pred[0])[:,:bins,:]
+            state_pred =  torch.sigmoid(pred[0])[:,:bins,:]
             group_pred = torch.sigmoid(pred[1])[:,:bins,:]
             note_pred = torch.sigmoid(pred[2])[:,:bins,:]
             tech_pred = torch.sigmoid(pred[3])[:,:bins,:]
@@ -729,18 +640,26 @@ class UNet(nn.Module):
             # note_pred = softmax(pred[2])
             # tech_pred = softmax(pred[3])
             # testing
+            # note_pred = note_pred.reshape(-1, 50)
+            # note = []
+            # for s in note_pred:
+            #     if s[s.argmax()] < 0.5:
+            #         note.append(0)
+            #     else:
+            #         note.append(s.argmax())
+            # note_pred = torch.tensor(note)            
             state_pred = state_pred.reshape(-1, 3)
             state = []
             for s in state_pred:
-                if s[s.argmax()] < 0.4:
+                if s[s.argmax()] < 0.5:
                     state.append(0)
                 else:
                     state.append(s.argmax())
             state_pred = torch.tensor(state)
             predictions = {
                     'note_state': state_pred.reshape(-1, bins),
-                    # 'note_state': state_pred.reshape(-1, 2).argmax(axis=1).reshape(-1, spec.shape[-2]),
                     'tech_group': group_pred.reshape(-1, 4).argmax(axis=1).reshape(-1, bins),
+                    # 'note': note_pred.reshape(-1, bins),
                     'note': note_pred.reshape(-1, 50).argmax(axis=1).reshape(-1, bins),
                     'tech': tech_pred.reshape(-1, 10).argmax(axis=1).reshape(-1, bins),
                     'r_adv': r_adv,

@@ -32,7 +32,7 @@ ds_ksize, ds_stride = (2,2),(2,2)
 mode = 'imagewise'
 sparsity = 2
 output_channel = 2
-logging_freq = 100 #100
+logging_freq = 50 #100
 saving_freq = 200
 
 @ex.config
@@ -61,7 +61,7 @@ def config():
     #     batch_size //= 2
     #     sequence_length //= 2
     #     print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
-    epoches = 8000 # 20000
+    epoches = 2300 #8000 # 20000
     step_size_up = 100
     max_lr = 1e-4
     learning_rate = 5e-4
@@ -71,16 +71,20 @@ def config():
     clip_gradient_norm = 3
     validation_length = sequence_length
     refresh = False
+    has_note = True
+    has_tech = True
+    has_state = True
+    has_group = False
     #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + '_TechSOTASettingButThreeStatesNoteGroupTechAttentionForTechIncluNormal'
+    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + f'AbalatoinStateNoteTechNotRefineTech'
     logdir = f'{root}/{model_save_dir}'
     ex.observers.append(FileStorageObserver.create(f'checkpoint/{model_save_dir}'))
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                     ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                    VAT, VAT_start, reconstruction):
+                    VAT, VAT_start, reconstruction, has_features):
     technique_dict = {
-        0: 'normal',
+        0: 'no tech',
         1: 'slide',
         2: 'bend',
         3: 'trill',
@@ -89,15 +93,16 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         6: 'harmonic',
         7: 'hammer',
         8: 'tap',
-        9: 'no tech'
+        9: 'normal'
     }
+    scaling = HOP_LENGTH / SAMPLE_RATE
     # log various result from the validation audio
     model.eval()
 
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            metrics, cm_dict_all = evaluate_prediction(valid_set, model, ep, technique_dict, reconstruction=reconstruction)
+            metrics, cm_dict_all = evaluate_prediction(valid_set, model, ep, technique_dict, scaling, has_state=has_features[0], has_group=has_features[1], eval_note=has_features[2], eval_tech=has_features[3])
             for key, values in metrics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -128,12 +133,11 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         tech_post = post[3]
         state_group_latent = latent[0][:,1,:,:].squeeze(1)
         note_tech_latent = latent[1][:,1,:,:].squeeze(1)
-        # state_latent = latent[0][:,1,:,:].squeeze(1)
-        # note_group_latent = latent[1][:,1,:,:].squeeze(1)
-        # tech_latent = latent[2][:,1,:,:].squeeze(1)
 
-        # get transcriptions and confusion matrix
-        transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict)
+        '''
+        get transcriptions and confusion matrix
+        '''
+        # transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict)
         # plot features
         plot_spec_and_post(writer, ep, state_post, 'images/state_post')
         plot_spec_and_post(writer, ep, group_post, 'images/group_post')
@@ -150,22 +154,22 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         plot_spec_and_post(writer, ep, state_group_latent, 'images/state_group_latent')
         plot_spec_and_post(writer, ep, note_tech_latent, 'images/note_tech_latent')
         plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
-        # Show the transcription result in validation period
-        print('Show the transcription result')
-        plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'], transcriptions['state_gt'])
+        ########### Show the transcription result in validation period ###########
+        # print('Show the transcription result')
+        # plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'], transcriptions['state_gt'])
 
-        plot_transcription(writer, ep, 'transcription/prediction', mel, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'], transcriptions['state'])
+        # plot_transcription(writer, ep, 'transcription/prediction', mel, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'], transcriptions['state'])
 
-        # Plot confusion matrix
-        print('Plot confusion matrix')
-        for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
-            if output_key in cm_dict.keys():
-                if output_key in ['cm', 'cm_2']:
-                    plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', 'd', 10)
-                    plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', 'd', 10)
-                else:
-                    plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)  
-                    plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', '.2f', 6)  
+        ########### Plot confusion matrix ###########
+        # print('Plot confusion matrix')
+        # for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
+        #     if output_key in cm_dict.keys():
+        #         if output_key in ['cm', 'cm_2']:
+        #             plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', 'd', 10)
+        #             plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', 'd', 10)
+        #         else:
+        #             plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)  
+        #             plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', '.2f', 6)  
 
         # # show adversarial samples    
         # print('adversarial samples')
@@ -184,16 +188,16 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         for key, values in test_losses.items():
             if key.startswith('loss/'):
                 writer.add_scalar(key, np.mean(values), global_step=ep)
-    model.eval()
-    if ep%(2 * logging_freq) == 0:
-        # test on training set
-        with torch.no_grad():
-            metrics, _ = evaluate_prediction(train_set, model, ep, technique_dict, reconstruction=reconstruction)
-            for key, values in metrics.items():
-                if key.startswith('metric/'):
-                    _, _, name = key.split('/')
-                    if name in ['accuracy', 'precision', 'recall', 'f1']:
-                        writer.add_scalar(f'{key}_train', np.mean(values), global_step=ep)
+    # model.eval()
+    # if ep%(2 * logging_freq) == 0:
+    #     # test on training set
+    #     with torch.no_grad():
+    #         metrics, _ = evaluate_prediction(train_set, model, ep, technique_dict, scaling, has_state=has_features[0], has_group=has_features[1], eval_note=has_features[2], eval_tech=has_features[3])
+    #         for key, values in metrics.items():
+    #             if key.startswith('metric/'):
+    #                 _, _, name = key.split('/')
+    #                 if name in ['accuracy', 'precision', 'recall', 'f1']:
+    #                     writer.add_scalar(f'{key}_train', np.mean(values), global_step=ep)
 
 
 def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
@@ -249,9 +253,10 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
 def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size, val_batch_size,
           learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, weight_decay, alpha,
           clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
-          reconstruction, model_save_dir): 
+          reconstruction, model_save_dir, has_note, has_tech, has_state, has_group): 
     print_config(ex.current_run)
     # flac for 16K audio
+    has_features = (has_state, has_group, has_note, has_tech)
     train_set, unsupervised_set, valid_set = prepare_VAT_dataset(
                                                                           sequence_length=sequence_length,
                                                                           validation_length=sequence_length,
@@ -308,14 +313,14 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         if ep < VAT_start or VAT == False:
             tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                            False, VAT_start, reconstruction)
+                            False, VAT_start, reconstruction, has_features)
         else:
             tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
                             ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                            True, VAT_start, reconstruction)            
+                            True, VAT_start, reconstruction, has_features)            
 
         # Saving model
-        if ep == 1 or (ep > 2000 and (ep)%logging_freq == 0):
+        if ep == 1 or (ep > 900 and (ep)%logging_freq == 0):
             torch.save(model.state_dict(), os.path.join('checkpoint', model_save_dir, f'model-{ep}.pt'))
             torch.save(optimizer.state_dict(), os.path.join('checkpoint', 'last-optimizer-state.pt'))
 

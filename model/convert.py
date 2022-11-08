@@ -32,14 +32,15 @@ def gen_transcriptions(transcriptions, note_ref, note_i_ref, note_est, note_i_es
 
     return transcriptions
 
-def gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_label, note, tech_label, tech, i, ep, save_folder='midi'):
-    tech_ref, tech_i_ref = extract_technique(tech_label) # (tech_label, state_label)
-    tech_est, tech_i_est = extract_technique(tech.squeeze(0))
+def gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_label, note, tech_label, tech, i, ep, save_folder='midi', scaling=None):
+    
+    tech_ref, tech_i_ref, _ = extract_technique(tech_label, scaling=scaling) # (tech_label, state_label)
+    tech_est, tech_i_est, _ = extract_technique(tech.squeeze(0), scaling=scaling)
 
     midi_path = os.path.join(save_folder, f'song{i}_ep{ep}.midi')
     gt_midi_path = os.path.join(save_folder, f'gt_song{i}.midi')
-    note_ref, note_i_ref, _, _ = extract_notes(note_label, state_label, midi=True, path=gt_midi_path, convert_pitch=False) #state_label
-    note_est, note_i_est, _, _ = extract_notes(note, note_state, midi=True, path=midi_path, convert_pitch=False) #note_state
+    note_ref, note_i_ref, _, _ = extract_notes(note_label, state_label, midi=True, path=gt_midi_path, convert_pitch=False, scaling=scaling) #state_label
+    note_est, note_i_est, _, _ = extract_notes(note, note_state, midi=True, path=midi_path, convert_pitch=False, scaling=scaling) #note_state
 
     transcriptions = gen_transcriptions(transcriptions, note_ref, note_i_ref, note_est, note_i_est, tech_ref, tech_i_ref, tech_est, tech_i_est, state_label, note_state)
     
@@ -118,7 +119,7 @@ def evaluate_frame_accuracy(correct_labels, predict_labels):
     for ref, est in zip(correct_labels, predict_labels):
         if ref == est:
             matched += 1
-    return matched / len(correct_labels)
+    return matched / len(correct_labels) if len(correct_labels) != 0 else 0
 
 def evaluate_frame_accuracy_per_tech(techniques, correct_labels, predict_labels):
     
@@ -135,7 +136,7 @@ def evaluate_frame_accuracy_per_tech(techniques, correct_labels, predict_labels)
     
     return accuracy
 
-def evaluate_technique(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dict, metrics, macro=False):
+def evaluate_technique_note_level(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dict, metrics, macro=False):
     '''
     0: 'no tech',
     1: 'slide',
@@ -183,9 +184,13 @@ def evaluate_technique(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dic
         metrics[f'metric/{value}/{m}precision_note'].append(p)
         metrics[f'metric/{value}/{m}recall_note'].append(r)
         metrics[f'metric/{value}/{m}f1_note'].append(f)
+    overall_p, overall_r, overall_f, overall_o = precision_recall_f1_overlap(tech_i_ref, tech_ref, tech_i_est, tech_est, onset_tolerance=0.1, pitch_tolerance=0, offset_ratio=None)
+    metrics[f'metric/technique/{m}precision_note'].append(overall_p)
+    metrics[f'metric/technique/{m}recall_note'].append(overall_r)
+    metrics[f'metric/technique/{m}f1_note'].append(overall_f)
     return metrics
 
-def extract_technique(techs, states=None, scale2time=True):
+def extract_technique(techs, states=None, scale2time=True, scaling=None):
     """
     Finds the note timings based on the onsets and tech information
     Parameters
@@ -202,7 +207,6 @@ def extract_technique(techs, states=None, scale2time=True):
     
     # convert from label 0 - 9 to 1 - 10 for mir_eval by adding 1
     techs = techs.to(torch.int8).cpu() # float
-
     techniques = []
     intervals = []
 
@@ -220,9 +224,12 @@ def extract_technique(techs, states=None, scale2time=True):
             while offset < rb and techs[offset] == tech:
                 offset += 1
             # After knowing where does the note start and end, we can return the tech information
+            if offset - onset < 2:
+                i += 1
+                continue
             techniques.append(tech)
-            intervals.append([onset, offset - 0.1]) # offset - 1
-            i = offset
+            intervals.append([onset, offset - 1])
+            i = offset        
     else:
         states = states.to(torch.int8).cpu()
         # a valid note must come with the onset state
@@ -245,15 +252,17 @@ def extract_technique(techs, states=None, scale2time=True):
                 intervals.append([onset, offset - 0.1])          
             else:
                 i += 1
+    
+    org_intervals = np.array(intervals)
+
     # convert time steps to seconds
-    scaling = HOP_LENGTH / SAMPLE_RATE
     if scale2time:
         intervals = (np.array(intervals) * scaling).reshape(-1, 2)
 
-    return np.array(techniques), intervals
+    return np.array(techniques), intervals, org_intervals
 
 
-def techniques_to_frames(techniques, intervals, shape):
+def techniques_to_frames(techniques, intervals, shape, scaling):
     """
     Takes lists specifying technique sequences and return
     Parameters
@@ -265,17 +274,22 @@ def techniques_to_frames(techniques, intervals, shape):
     -------
     time: np.ndarray containing the frame indices
     freqs: list of np.ndarray, each containing the frequency bin indices
+    # print(time.shape, techniques.shape)
     """
     roll = np.zeros((shape[0], 10))
-    # roll = np.zeros(tuple(shape))
     for technique, (onset, offset) in zip(techniques, intervals):
         roll[onset:offset, technique] = 1
 
     time = np.arange(roll.shape[0])
     tehcniques = [roll[t, :].nonzero()[0] for t in time]
-    return time, tehcniques
+    # convert to frame
+    time = (np.array(time) * scaling)
+    techniques = (np.array(tehcniques) + 1) * 200
 
-def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, path=None, convert_pitch=True):
+    # print(time.shape, techniques.shape)
+    return time, techniques
+
+def extract_notes(notes, states=None, scaling=None, groups=None, scale2time=True, midi=False, path=None, convert_pitch=True, poly=False):
     """
     Finds the note timings based on the onsets and frames information
     Parameters
@@ -291,8 +305,10 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
     intervals: np.ndarray of rows containing (onset_index, offset_index)
     velocities: np.ndarray of velocity values
     """
-    notes = notes.to(torch.int8).cpu()
+    if poly:
+        return extract_poly_notes(notes, states, scaling, onset_threshold=0.5, frame_threshold=0.5)
 
+    notes = notes.to(torch.int8).cpu()
     pitches = []
     intervals = []
 
@@ -310,14 +326,18 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
             while offset < len(notes) and notes[offset] == note:
                 offset += 1
             # After knowing where does the note start and end, we can return the note information
+            if offset - onset < 2:
+                i += 1
+                continue
             pitches.append(note)
-            intervals.append([onset, offset - 0.1]) # offset - 1
+            intervals.append([onset, offset - 1]) # offset - 0.1
             i = offset
     else:
         states = states.to(torch.int8).cpu()
         # a valid note must come with the onset state
         onset = False
         total = len(notes)
+
         for i, (note, state) in enumerate(zip(notes, states)):
             # assume one onset does not follow another onset
             if onset == False and state == 1 and note != 0:
@@ -337,7 +357,6 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
                         pitches.append(onset_note)
                         intervals.append([start, i])
 
-    scaling = HOP_LENGTH / SAMPLE_RATE
     org_pitches = np.array(pitches)
     org_intervals = np.array(intervals)
 
@@ -358,11 +377,59 @@ def extract_notes(notes, states=None, groups=None, scale2time=True, midi=False, 
     #     save_midi(path, np.array(pitches), intervals)
     # elif scale2time:
     #     intervals = (np.array(intervals) * scaling).reshape(-1, 2)
-        
 
     return pitches, intervals, org_pitches, org_intervals
 
-def notes_to_frames(pitches, intervals, shape, solola=False):
+def extract_poly_notes(frames, onsets, scaling, onset_threshold=0.5, frame_threshold=0.5):
+    """
+    Finds the note timings based on the onsets and frames information
+    Parameters
+    ----------
+    onsets: torch.FloatTensor, shape = [frames, bins]
+    frames: torch.FloatTensor, shape = [frames, bins]
+    onset_threshold: float
+    frame_threshold: float
+    Returns
+    -------
+    pitches: np.ndarray of bin_indices
+    intervals: np.ndarray of rows containing (onset_index, offset_index)
+    velocities: np.ndarray of velocity values
+    """
+    onsets = (onsets > onset_threshold).cpu().to(torch.uint8)
+    frames = (frames > frame_threshold).cpu().to(torch.uint8)
+
+    onsets = (onsets == 1).float()
+    onset_diff = torch.cat([onsets[:1, :], onsets[1:, :] - onsets[:-1, :]], dim=0) == 1 # Make sure the activation is only 1 time-step
+
+    pitches = []
+    intervals = []
+
+    for nonzero in onset_diff.nonzero():
+        frame = nonzero[0].item()
+        pitch = nonzero[1].item()
+
+        onset = frame
+        offset = frame
+
+        # This while loop is looking for where does the note ends
+        while onsets[offset, pitch].item() or frames[offset, pitch].item():
+            offset += 1
+            if offset == onsets.shape[0]:
+                break
+
+        # After knowing where does the note start and end, we can return the pitch information (and velocity)        
+        if offset > onset:
+            pitches.append(pitch)
+            intervals.append([onset, offset])
+
+    org_pitches = np.array(pitches)
+    org_intervals = np.array(intervals)
+    intervals = (np.array(intervals) * scaling).reshape(-1, 2)
+    pitches = np.array([midi_to_hz(MIN_MIDI + midi) for midi in pitches])
+
+    return pitches, intervals, org_pitches, org_intervals
+
+def notes_to_frames(pitches, intervals, shape, scaling):
     """
     Takes lists specifying notes sequences and return
     Parameters
@@ -375,23 +442,18 @@ def notes_to_frames(pitches, intervals, shape, solola=False):
     time: np.ndarray containing the frame indices
     freqs: list of np.ndarray, each containing the frequency bin indices
     """
-    scaling = HOP_LENGTH / SAMPLE_RATE
     roll = np.zeros((shape[0], 50))
     state = np.zeros((shape[0], 1))
     for pitch, (onset, offset) in zip(pitches, intervals):
         roll[onset: offset, pitch] = 1
-        if solola:
-            state[onset:offset-1] = 1
 
     time = np.arange(roll.shape[0])
     freqs = [roll[t, :].nonzero()[0] for t in time]
 
     time = (np.array(time) * scaling)
     freqs = np.array([midi_to_hz(MIN_MIDI + midi) for midi in freqs])
-    if solola:
-        return time, freqs, state
-    else:
-        return time, freqs
+    return time, freqs
+
 def save_midi(path, pitches, intervals):
     """
     Save extracted notes as a MIDI file
