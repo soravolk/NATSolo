@@ -174,7 +174,7 @@ def save_confusion_mat(cm_dict_all, save_folder):
 
 def load_data(audio_type, device, name):
     if name == 'EG_Solo':
-        return Solo(path='./Solo', folders=['valid'], sequence_length=96000, device=device, audio_type=audio_type)
+        return Solo(path='./Solo', folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
     elif name == 'GN':
         return Solo(path='./GN', folders=['valid'], sequence_length=None, device=device, audio_type=audio_type)
 
@@ -219,8 +219,8 @@ def evaluation(model, testing_set, save_path, has_state, has_group, has_note, ha
         metrics, cm_dict_all, inferences, spec, prob = evaluate_prediction(testing_set, model, ep, technique_dict, scaling, save_path=save_path, testing=True, has_state=has_state, has_group=has_group, eval_note=has_note, eval_tech=has_tech)
         save_metrics(metrics, args.save_path, dataset)
 
-        # if has_note and has_tech:
-        #     save_transcription_and_midi(inferences, spec, prob, args.save_path, scaling)
+        if has_note and has_tech:
+            save_transcription_and_midi(inferences, spec, prob, args.save_path, scaling)
         # if has_tech:
         #     save_confusion_mat(cm_dict_all, args.save_path)
     
