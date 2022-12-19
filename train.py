@@ -81,18 +81,6 @@ def config():
     ex.observers.append(FileStorageObserver.create(f'checkpoint/{model_save_dir}'))
 
 def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer, VAT, VAT_start, reconstruction, has_features):
-    technique_dict = {
-        0: 'no tech',
-        1: 'slide',
-        2: 'bend',
-        3: 'trill',
-        4: 'mute',
-        5: 'pull',
-        6: 'harmonic',
-        7: 'hammer',
-        8: 'tap',
-        9: 'normal'
-    }
     scaling = HOP_LENGTH / SAMPLE_RATE
     # log various result from the validation audio
     model.eval()
@@ -100,7 +88,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep
     if ep%logging_freq==0 or ep==1:
         # on valid set
         with torch.no_grad():
-            metrics, cm_dict_all = evaluate_prediction(valid_set, model, ep, technique_dict, scaling, has_state=has_features[0], has_group=has_features[1], eval_note=has_features[2], eval_tech=has_features[3])
+            metrics, cm_dict_all = evaluate_prediction(valid_set, model, ep, scaling, has_state=has_features[0], has_group=has_features[1], eval_note=has_features[2], eval_tech=has_features[3])
             for key, values in metrics.items():
                 if key.startswith('metric/'):
                     _, category, name = key.split('/')
@@ -122,7 +110,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep
         '''
         get transcriptions and confusion matrix
         '''
-        transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict, scaling)
+        transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, scaling)
         # plot features
 
         ########### Show the transcription result ###########

@@ -14,7 +14,7 @@ from .utils import save_pianoroll
 
 eps = sys.float_info.epsilon    
 
-def evaluate_pitch_frame_and_note_level(note_label, state_label, note_pred, state_pred, tech_label, metrics, technique_dict, scaling, macro=False, poly=False):
+def evaluate_pitch_frame_and_note_level(note_label, state_label, note_pred, state_pred, tech_label, metrics, scaling, macro=False, poly=False):
     m = '_macro' if macro else ''
     note_ref, note_i_ref, org_note_ref, org_note_i_ref = extract_notes(note_label, state_label, scaling=scaling)
     note_est, note_i_est, org_note_est, org_note_i_est = extract_notes(note_pred, state_pred, scaling=scaling, poly=poly)
@@ -50,7 +50,7 @@ def evaluate_pitch_frame_and_note_level(note_label, state_label, note_pred, stat
     # metrics['metric/note-with-offsets/overlap'].append(o)
     return metrics
 
-def calculate_tech_recall_precision(cm_dict, technique_dict, metrics, macro):
+def calculate_tech_recall_precision(cm_dict, metrics, macro):
     m = 'macro_' if macro else ''
     for key, value in technique_dict.items():
         p = cm_dict['Precision'][key][key]
@@ -61,7 +61,7 @@ def calculate_tech_recall_precision(cm_dict, technique_dict, metrics, macro):
         metrics[f'metric/{value}/{m}f1'].append(f)
     return metrics
 
-def evaluate_technique_frame_and_note_level(label, pred, metrics, macro_cm, technique_dict, scaling, macro=False, solola=False):
+def evaluate_technique_frame_and_note_level(label, pred, metrics, macro_cm, scaling, macro=False, solola=False):
     m = '_macro' if macro else ''
     if macro:
         macro_recall, macro_precision  = get_prec_recall(macro_cm)
@@ -81,13 +81,13 @@ def evaluate_technique_frame_and_note_level(label, pred, metrics, macro_cm, tech
         else:
             macro_cm += cm_dict['cm']
     # get the recall and precision of techniques
-    metrics = calculate_tech_recall_precision(cm_dict, technique_dict, metrics, macro=macro)
+    metrics = calculate_tech_recall_precision(cm_dict, metrics, macro=macro)
 
     # get techinique and interval
     tech_ref, tech_i_ref, org_tech_i_ref = extract_technique(label, states=None, scale2time=True, scaling=scaling) # (tech_label, state_label)
     tech_est, tech_i_est, org_tech_i_est = extract_technique(pred, states=None, scale2time=True, scaling=scaling) # (pred['tech'], pred['note_state'])
 
-    metrics = evaluate_technique_note_level(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dict, metrics, macro=macro)
+    metrics = evaluate_technique_note_level(tech_ref, tech_i_ref, tech_est, tech_i_est, metrics, macro=macro)
     
     tech_t_ref, tech_f_ref = techniques_to_frames(tech_ref, org_tech_i_ref, label.shape, scaling)
     tech_t_est, tech_f_est = techniques_to_frames(tech_est, org_tech_i_est, pred.shape, scaling)
@@ -103,7 +103,7 @@ def evaluate_technique_frame_and_note_level(label, pred, metrics, macro_cm, tech
     else:
         return metrics, macro_cm
 
-def evaluate_prediction(data, model, ep, technique_dict, scaling, save_path=None, reconstruction=False, testing=False, has_state=True, has_group=True, eval_note=True, eval_tech=True):
+def evaluate_prediction(data, model, ep, scaling, save_path=None, reconstruction=False, testing=False, has_state=True, has_group=True, eval_note=True, eval_tech=True):
     metrics = defaultdict(list) # a safe dict
     macro_cm = None
     cm_dict_all = None
@@ -150,7 +150,7 @@ def evaluate_prediction(data, model, ep, technique_dict, scaling, save_path=None
         ############ evaluate techniques ############
         # get the confusion matrix
         if eval_tech:
-            metrics, macro_cm = evaluate_technique_frame_and_note_level(tech_label, tech_pred, metrics, macro_cm, technique_dict, scaling)
+            metrics, macro_cm = evaluate_technique_frame_and_note_level(tech_label, tech_pred, metrics, macro_cm, scaling)
 
         if eval_note:
             macro_note_label.extend(note_label)
@@ -175,13 +175,13 @@ def evaluate_prediction(data, model, ep, technique_dict, scaling, save_path=None
 
         ############ evaluate notes ############ 
         if eval_note:
-            metrics = evaluate_pitch_frame_and_note_level(note_label, state_label, note_pred, state_pred, tech_label, metrics, technique_dict, scaling)
+            metrics = evaluate_pitch_frame_and_note_level(note_label, state_label, note_pred, state_pred, tech_label, metrics, scaling)
 
     ############ get the macro recall and precision of techniques ############ 
     if eval_tech:
         macro_tech_label = torch.tensor(macro_tech_label)
         macro_tech_pred = torch.tensor(macro_tech_pred)
-        metrics, cm_dict_all = evaluate_technique_frame_and_note_level(macro_tech_label, macro_tech_pred, metrics, macro_cm, technique_dict, scaling, macro=True)
+        metrics, cm_dict_all = evaluate_technique_frame_and_note_level(macro_tech_label, macro_tech_pred, metrics, macro_cm, scaling, macro=True)
  
     ############ get macro note metrics ############
     if eval_note:
@@ -190,7 +190,7 @@ def evaluate_prediction(data, model, ep, technique_dict, scaling, save_path=None
             macro_state_pred = torch.tensor(macro_state_pred)
         macro_note_label = torch.tensor(macro_note_label)
         macro_note_pred = torch.tensor(macro_note_pred)
-        metrics = evaluate_pitch_frame_and_note_level(macro_note_label, macro_state_label, macro_note_pred, macro_state_pred, macro_tech_label, metrics, technique_dict, scaling, macro=True)
+        metrics = evaluate_pitch_frame_and_note_level(macro_note_label, macro_state_label, macro_note_pred, macro_state_pred, macro_tech_label, metrics, scaling, macro=True)
 
     if not testing:
         return metrics, cm_dict_all #, val_loss

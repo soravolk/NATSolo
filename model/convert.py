@@ -45,7 +45,7 @@ def gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_la
     
     return transcriptions
 
-def get_transcription_and_cmx(labels, preds, ep, technique_dict, scaling):
+def get_transcription_and_cmx(labels, preds, ep, scaling):
     transcriptions = defaultdict(list)
     labels = labels.type(torch.LongTensor).cuda()
     for i, (label, tech, note, note_state) in enumerate(zip(labels, preds['tech'], preds['note'], preds['note_state'])):
@@ -135,7 +135,7 @@ def evaluate_frame_accuracy_per_tech(techniques, correct_labels, predict_labels)
     
     return accuracy
 
-def evaluate_technique_note_level(tech_ref, tech_i_ref, tech_est, tech_i_est, technique_dict, metrics, macro=False):
+def evaluate_technique_note_level(tech_ref, tech_i_ref, tech_est, tech_i_est, metrics, macro=False):
     '''
     0: 'no tech',
     1: 'slide',
@@ -256,7 +256,6 @@ def extract_technique(techs, states=None, scale2time=True, scaling=None):
 
     # convert time steps to seconds
     if scale2time:
-        print('============', scaling)
         intervals = (np.array(intervals) * scaling).reshape(-1, 2)
 
     return np.array(techniques), intervals, org_intervals
