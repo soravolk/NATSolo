@@ -75,14 +75,12 @@ def config():
     has_tech = True
     has_state = True
     has_group = False
-    #logdir = f'{root}/Unet_Onset-recons={reconstruction}-XI={XI}-eps={eps}-alpha={alpha}-train_on={train_on}-w_size={w_size}-n_heads={n_heads}-lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S')
-    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + f'AbalatoinStateNoteTechNotRefineTech'
+
+    model_save_dir = f'lr={learning_rate}-'+ datetime.now().strftime('%y%m%d-%H%M%S') + f'CodeRefactorTesting'
     logdir = f'{root}/{model_save_dir}'
     ex.observers.append(FileStorageObserver.create(f'checkpoint/{model_save_dir}'))
 
-def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
-                    ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                    VAT, VAT_start, reconstruction, has_features):
+def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer, VAT, VAT_start, reconstruction, has_features):
     technique_dict = {
         0: 'no tech',
         1: 'slide',
@@ -119,86 +117,69 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
         flux = spec[1]
         # Show the original transcription and spectrograms
         #loss = sum(losses.values())
-        state_post_a = post_a[0] # processed by attention
-        group_post_a = post_a[1]
-        note_post_a = post_a[2]
-        tech_post_a = post_a[3]
-        note_post_ab = post_a[4]
-        tech_post_ab = post_a[5]
-        # state_post_ab = post_a[6]
-        # group_post_ab = post_a[7]
-        state_post = post[0]
-        group_post = post[1]
-        note_post = post[2]
-        tech_post = post[3]
-        state_group_latent = latent[0][:,1,:,:].squeeze(1)
-        note_tech_latent = latent[1][:,1,:,:].squeeze(1)
+        plot_post_and_latent(writer, ep, post_a, post, latent, flux)
 
         '''
         get transcriptions and confusion matrix
         '''
-        # transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict)
+        transcriptions, cm_dict = get_transcription_and_cmx(batch_visualize['label'], predictions, ep, technique_dict, scaling)
         # plot features
-        plot_spec_and_post(writer, ep, state_post, 'images/state_post')
-        plot_spec_and_post(writer, ep, group_post, 'images/group_post')
-        plot_spec_and_post(writer, ep, note_post, 'images/note_post')
-        plot_spec_and_post(writer, ep, tech_post, 'images/tech_post')
-        plot_spec_and_post(writer, ep, state_post_a, 'images/state_post_a')
-        plot_spec_and_post(writer, ep, group_post_a, 'images/group_post_a')
-        plot_spec_and_post(writer, ep, note_post_a, 'images/note_post_a')
-        plot_spec_and_post(writer, ep, tech_post_a, 'images/tech_post_a')
-        plot_spec_and_post(writer, ep, note_post_ab, 'images/note_post_a_before')
-        plot_spec_and_post(writer, ep, tech_post_ab, 'images/tech_post_a_before')
-        # plot_spec_and_post(writer, ep, state_post_ab, 'images/state_post_mid')
-        # plot_spec_and_post(writer, ep, group_post_ab, 'images/group_post_mid')
-        plot_spec_and_post(writer, ep, state_group_latent, 'images/state_group_latent')
-        plot_spec_and_post(writer, ep, note_tech_latent, 'images/note_tech_latent')
-        plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
-        ########### Show the transcription result in validation period ###########
-        # print('Show the transcription result')
-        # plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'], transcriptions['state_gt'])
 
-        # plot_transcription(writer, ep, 'transcription/prediction', mel, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'], transcriptions['state'])
+        ########### Show the transcription result ###########
+        print('Show the transcription result')
+        plot_transcriptions(writer, ep, mel, transcriptions)
 
         ########### Plot confusion matrix ###########
-        # print('Plot confusion matrix')
-        # for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
-        #     if output_key in cm_dict.keys():
-        #         if output_key in ['cm', 'cm_2']:
-        #             plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', 'd', 10)
-        #             plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', 'd', 10)
-        #         else:
-        #             plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)  
-        #             plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', '.2f', 6)  
-
-        # # show adversarial samples    
-        # print('adversarial samples')
-        # if predictions['r_adv'] is not None: 
-        #     fig, axs = plt.subplots(2, 2, figsize=(24,8))
-        #     axs = axs.flat
-        #     for idx, i in enumerate(mel.cpu().detach().numpy()):
-        #         x_adv = i.transpose()+predictions['r_adv'][idx][0].t().cpu().numpy()
-        #         axs[idx].imshow(x_adv, vmax=1, vmin=0, cmap='jet', origin='lower')
-        #         axs[idx].axis('off')
-        #     fig.tight_layout()
-        #     writer.add_figure('images/Spec_adv', fig , ep)
+        print('Plot confusion matrix')
+        plot_confusion_matrices(writer, ep, cm_dict, cm_dict_all) 
 
         model.eval()
         test_losses = eval_model(model, ep, val_loader, VAT_start, VAT)
         for key, values in test_losses.items():
             if key.startswith('loss/'):
                 writer.add_scalar(key, np.mean(values), global_step=ep)
-    # model.eval()
-    # if ep%(2 * logging_freq) == 0:
-    #     # test on training set
-    #     with torch.no_grad():
-    #         metrics, _ = evaluate_prediction(train_set, model, ep, technique_dict, scaling, has_state=has_features[0], has_group=has_features[1], eval_note=has_features[2], eval_tech=has_features[3])
-    #         for key, values in metrics.items():
-    #             if key.startswith('metric/'):
-    #                 _, _, name = key.split('/')
-    #                 if name in ['accuracy', 'precision', 'recall', 'f1']:
-    #                     writer.add_scalar(f'{key}_train', np.mean(values), global_step=ep)
 
+def plot_post_and_latent(writer, ep, post_a, post, latent, flux):
+    state_post_a = post_a[0] # processed by attention
+    group_post_a = post_a[1]
+    note_post_a = post_a[2]
+    tech_post_a = post_a[3]
+    note_post_ab = post_a[4]
+    tech_post_ab = post_a[5]
+    state_post = post[0]
+    group_post = post[1]
+    note_post = post[2]
+    tech_post = post[3]
+    state_group_latent = latent[0][:,1,:,:].squeeze(1)
+    note_tech_latent = latent[1][:,1,:,:].squeeze(1)
+    plot_spec_and_post(writer, ep, state_post, 'images/state_post')
+    plot_spec_and_post(writer, ep, group_post, 'images/group_post')
+    plot_spec_and_post(writer, ep, note_post, 'images/note_post')
+    plot_spec_and_post(writer, ep, tech_post, 'images/tech_post')
+    plot_spec_and_post(writer, ep, state_post_a, 'images/state_post_a')
+    plot_spec_and_post(writer, ep, group_post_a, 'images/group_post_a')
+    plot_spec_and_post(writer, ep, note_post_a, 'images/note_post_a')
+    plot_spec_and_post(writer, ep, tech_post_a, 'images/tech_post_a')
+    plot_spec_and_post(writer, ep, note_post_ab, 'images/note_post_a_before')
+    plot_spec_and_post(writer, ep, tech_post_ab, 'images/tech_post_a_before')
+    plot_spec_and_post(writer, ep, state_group_latent, 'images/state_group_latent')
+    plot_spec_and_post(writer, ep, note_tech_latent, 'images/note_tech_latent')
+    plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
+
+def plot_transcriptions(writer, ep, mel, transcriptions):
+    plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'], transcriptions['state_gt'])
+
+    plot_transcription(writer, ep, 'transcription/prediction', mel, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'], transcriptions['state'])
+
+def plot_confusion_matrices(writer, ep, cm_dict, cm_dict_all):
+    for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
+        if output_key in cm_dict.keys():
+            if output_key in ['cm', 'cm_2']:
+                plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', 'd', 10)
+                plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', 'd', 10)
+            else:
+                plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)  
+                plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', '.2f', 6)
 
 def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
     model.train()
@@ -258,19 +239,18 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     # flac for 16K audio
     has_features = (has_state, has_group, has_note, has_tech)
     train_set, unsupervised_set, valid_set = prepare_VAT_dataset(
-                                                                          sequence_length=sequence_length,
-                                                                          validation_length=sequence_length,
-                                                                          refresh=refresh,
-                                                                          device=device,
-                                                                          audio_type='flac')  
+        sequence_length=sequence_length,
+        validation_length=sequence_length,
+        refresh=refresh,
+        device=device,
+        audio_type='flac'
+    )  
     if VAT:
         unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
-#     train_set, unsupervised_set = torch.utils.data.random_split(dataset, [100, 39],
-#                                                                      generator=torch.Generator().manual_seed(42))
+    #generator=torch.Generator().manual_seed(42))
     
     # get weight of tech label for BCE loss
     bce_weights = compute_dataset_weight(device)
-    #bce_weights = None
 
     print("train_set: ", len(train_set))
     print("unsupervised_set: ", len(unsupervised_set))
@@ -295,7 +275,6 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         optimizer.load_state_dict(torch.load(os.path.join('checkpoint', 'last-optimizer-state.pt')))
 
     summary(model)
-    # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=base_lr, max_lr=max_lr, step_size_up=step_size_up,cycle_momentum=False)
     scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
 
     for ep in tqdm(range(1, epoches+1)):

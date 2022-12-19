@@ -13,6 +13,7 @@ from model.convert import *
 from model.constants import *
 from model.evaluate_functions import *
 from model.dataset import Solo, parse_tech_and_group, parse_note_and_state
+
 '''
 0: pitch(midi number)
 1: onset
@@ -25,6 +26,145 @@ from model.dataset import Solo, parse_tech_and_group, parse_note_and_state
 '''
 
 eps = sys.float_info.epsilon
+
+def plot_predicted_transcription(specs, probs, note_interval, note, tech_interval, tech, state, save_folder):
+    tech_trans = {
+        0: '0',
+        1: 's',
+        2: 'b',
+        3: '~',
+        4: 'x',
+        5: 'p',
+        6: '<>',
+        7: 'h',
+        8: 't',
+        9: 'n'
+    }
+    # specs = specs.cpu().detach().numpy()
+    for i, (spec, prob, x, y, x_tech, y_tech, onset) in enumerate(zip(specs, probs, note_interval, note, tech_interval, tech, state)):
+        time_range = spec.shape[0] * (HOP_LENGTH/SAMPLE_RATE)
+        fig, ax = plt.subplots(2, 1, constrained_layout=True, figsize=(100,20), gridspec_kw={'height_ratios': [4,1]})
+        ax = ax.flat
+        # spectrogram
+        # librosa.display.specshow(spec.transpose(), y_axis='mel', sr=SAMPLE_RATE, fmax=MEL_FMAX, ax=ax[0])
+        # ax[0].set_ylabel('f (Hz)', fontsize=70)
+        # ax[0].tick_params(labelsize=65)
+        # label_format = '{:,.0f}'
+        # ticks_loc = ax[0].get_yticks().tolist()
+        # ax[0].set_ylim([512, 4096])
+        # ax[0].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
+        # ax[0].set_yticklabels([label_format.format(x) for x in ticks_loc])
+        # # note prob
+        # ax[1].imshow(np.flip(prob[0].transpose(), 0), cmap='plasma')
+        # ax[1].set_xlim([0, spec.shape[0]])
+        # ax[1].axis('off')
+        # # note prob refined by state
+        # ax[2].imshow(np.flip(prob[1].transpose(), 0), cmap='plasma')
+        # ax[2].set_xlim([0, spec.shape[0]])
+        # ax[2].axis('off')
+        # note transcription
+        ax[0].tick_params(labelbottom=False, labelsize=65)
+        ax[0].set_ylabel('midi #', fontsize=70)
+        ax[0].set_xlim([0, time_range])
+        ax[0].set_ylim([60, 100])
+        # ax[3].set_yticklabels([70, 80, 90])
+        label_format = '{:,.0f}'
+        ticks_loc = ax[0].get_yticks().tolist()
+        ax[0].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
+        ax[0].set_yticklabels([label_format.format(x) for x in ticks_loc])
+        for j, t in enumerate(x):
+            x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
+            y_val = np.full(len(x_val), y[j])
+            ax[0].plot(x_val, y_val, linewidth=7.5)
+            # ax[1].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
+        # onset information
+        for o in onset:
+            ax[0].vlines(o, ymin=60, ymax=100, linestyles='dotted')
+        # techique transcription
+        # ax[4].set_xlabel('time (s)', fontsize=37)
+        # ax[4].set_ylabel('technique', fontsize=37)
+        ax[1].tick_params(labelleft=False, labelsize=60)#, labelbottom=False)
+        ax[1].set_xlim([0, time_range])
+        for j, t in enumerate(x_tech):
+            x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
+            # y_val = np.full(len(x_val), y_tech[j])
+            y_val = np.ones(len(x_val))
+            ax[1].text(x_val[len(x_val) // 2], 1, tech_trans[y_tech[j]], fontsize=45)
+            ax[1].plot(x_val, y_val, linewidth=7.5)
+            ax[1].vlines(t[0], ymin=0.7, ymax=2, linestyles='dotted')
+        plt.savefig(f'{save_folder}/prediction/{i}.png')
+        plt.close()
+
+def plot_groundtruth_transcription(specs, note_interval, note, tech_interval, tech, state, save_folder):
+    tech_trans = {
+        0: '0',
+        1: 's',
+        2: 'b',
+        3: '~',
+        4: 'x',
+        5: 'p',
+        6: '<>',
+        7: 'h',
+        8: 't',
+        9: 'n'
+    }
+    # specs = specs.cpu().detach().numpy()
+    for i, (spec, x, y, x_tech, y_tech, onset) in enumerate(zip(specs, note_interval, note, tech_interval, tech, state)):
+        time_range = spec.shape[0] * (HOP_LENGTH/SAMPLE_RATE)
+        fig, ax = plt.subplots(2, 1, constrained_layout=True, figsize=(100,20), gridspec_kw={'height_ratios': [4, 1]})
+        ax = ax.flat
+        # spectrogram
+        # librosa.display.specshow(spec.transpose(), y_axis='mel', sr=SAMPLE_RATE, fmax=MEL_FMAX, ax=ax[0])
+        # ax[0].set_ylabel('spectrogram')
+        # note transcription
+        ax[0].tick_params(labelbottom=False, labelsize=65)
+        ax[0].set_ylabel('midi # (GT)', fontsize=70)
+        ax[0].set_xlim([0, time_range])
+        ax[0].set_ylim([60, 100])
+        label_format = '{:,.0f}'
+        ticks_loc = ax[0].get_yticks().tolist()
+        ax[0].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
+        ax[0].set_yticklabels([label_format.format(x) for x in ticks_loc])
+        for j, t in enumerate(x):
+            x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
+            y_val = np.full(len(x_val), y[j])
+            ax[0].plot(x_val, y_val, linewidth=7.5)
+            # ax[0].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
+        # onset information
+        for o in onset:
+            ax[0].vlines(o, ymin=60, ymax=100, linestyles='dotted')
+        # techique transcription
+        ax[1].tick_params(labelleft=False, labelsize=60)
+        ax[1].set_xlabel('time (s)', fontsize=70)
+        # ax[1].set_ylabel('technique', fontsize=60)
+        ax[1].set_xlim([0, time_range])
+        for j, t in enumerate(x_tech):
+            x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
+            # y_val = np.full(len(x_val), y_tech[j])
+            y_val = np.ones(len(x_val))
+            ax[1].text(x_val[len(x_val) // 2], 1, tech_trans[y_tech[j]], fontsize=45)
+            ax[1].plot(x_val, y_val, linewidth=7.5)
+            ax[1].vlines(t[0], ymin=0.7, ymax=2, linestyles='dotted')
+        plt.savefig(f'{save_folder}/groundtruth/{i}.png')
+        plt.close()
+        
+def save_transcription_and_midi(inferences, spec, prob, save_folder, scaling):
+    transcription_path = f'{save_folder}/transcription'
+    midi_path = f'{save_folder}/midi'
+
+    transcriptions = defaultdict(list)
+    note_labels = inferences['testing_note_label']
+    state_labels = inferences['testing_state_label']
+    tech_labels = inferences['testing_tech_label']
+    note_preds = inferences['testing_note_pred']
+    state_preds = inferences['testing_state_pred']
+    tech_preds = inferences['testing_tech_pred']
+    ep = 1
+    for i, (s_label, s_pred, n_label, n_pred, t_label, t_pred) in enumerate(zip(state_labels, state_preds, note_labels, note_preds, tech_labels, tech_preds)):
+        transcriptions = gen_transcriptions_and_midi(transcriptions, s_label, s_pred, n_label, n_pred, t_label, t_pred, i, ep, midi_path, scaling=scaling)
+
+    plot_groundtruth_transcription(spec, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'], transcriptions['state_gt'], transcription_path)
+    plot_predicted_transcription(spec, prob, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'], transcriptions['state'], transcription_path)
 
 def parse():
     parser = argparse.ArgumentParser(description='solola testing script')
@@ -120,6 +260,10 @@ def load_data(model):
         return Solo(path='../GN', folders=['valid'], sequence_length=None, device='cuda:0', audio_type='wav', sr=16000, hop=128)
 
 def evaluate(technique_dict, valid_set, model):
+    testing = True
+    inference = defaultdict(list)
+    specs = []
+    probs = []
     metrics = defaultdict(list)
     macro_cm = None
     macro_note_label = []
@@ -205,6 +349,17 @@ def evaluate(technique_dict, valid_set, model):
             metrics, macro_cm = evaluate_technique_frame_and_note_level(tech_label, tech_pred, metrics, macro_cm, technique_dict, scaling)
             macro_tech_label.extend(tech_label)
             macro_tech_pred.extend(tech_pred)
+        
+        if testing:
+            inference['testing_note_label'].append(note_label)
+            inference['testing_state_label'].append(state_label)
+            inference['testing_note_pred'].append(note_pred)
+            inference['testing_state_pred'].append(state_pred)
+            if eval_note and eval_tech:
+                inference['testing_tech_label'].append(tech_label)
+                inference['testing_tech_pred'].append(tech_pred)
+                # specs.append(spec[0].squeeze(0).cpu().numpy())
+                # probs.append((prob[4].squeeze(0).cpu().numpy(), prob[2].squeeze(0).cpu().numpy())) # note_prob, note_prob passed to attention with state
 
     if eval_note:
         macro_note_label = torch.tensor(macro_note_label)
@@ -217,7 +372,7 @@ def evaluate(technique_dict, valid_set, model):
         macro_tech_pred = torch.tensor(macro_tech_pred)
         metrics, cm_dict_all = evaluate_technique_frame_and_note_level(macro_tech_label, macro_tech_pred, metrics, macro_cm, technique_dict, scaling, macro=True)
 
-    return metrics
+    return metrics, inference, specs, probs, scaling
 
 if __name__ == '__main__':
     technique_dict = {
@@ -235,10 +390,11 @@ if __name__ == '__main__':
     parser = parse()
     args = parser.parse_args()
     valid_set = load_data(args.model)
-    metrics = evaluate(technique_dict, valid_set, args.model)
-    with open(f'{args.save_path}/metrics.txt', 'w') as f:
-        for key, values in metrics.items():
-            if key.startswith('metric/'):
-                _, category, name = key.split('/')
-                print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}', file=f)
-                print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')
+    metrics, inferences, specs, probs, scaling = evaluate(technique_dict, valid_set, args.model)
+    save_transcription_and_midi(inferences, specs, probs, args.save_path, scaling)
+    # with open(f'{args.save_path}/metrics.txt', 'w') as f:
+    #     for key, values in metrics.items():
+    #         if key.startswith('metric/'):
+    #             _, category, name = key.split('/')
+    #             print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}', file=f)
+    #             print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')

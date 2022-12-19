@@ -33,9 +33,8 @@ def gen_transcriptions(transcriptions, note_ref, note_i_ref, note_est, note_i_es
     return transcriptions
 
 def gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_label, note, tech_label, tech, i, ep, save_folder='midi', scaling=None):
-    
-    tech_ref, tech_i_ref, _ = extract_technique(tech_label, scaling=scaling) # (tech_label, state_label)
-    tech_est, tech_i_est, _ = extract_technique(tech.squeeze(0), scaling=scaling)
+    tech_ref, tech_i_ref, _ = extract_technique(tech_label, states=None, scale2time=True, scaling=scaling) # (tech_label, state_label)
+    tech_est, tech_i_est, _ = extract_technique(tech.squeeze(0), states=None, scale2time=True, scaling=scaling)
 
     midi_path = os.path.join(save_folder, f'song{i}_ep{ep}.midi')
     gt_midi_path = os.path.join(save_folder, f'gt_song{i}.midi')
@@ -46,7 +45,7 @@ def gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_la
     
     return transcriptions
 
-def get_transcription_and_cmx(labels, preds, ep, technique_dict):
+def get_transcription_and_cmx(labels, preds, ep, technique_dict, scaling):
     transcriptions = defaultdict(list)
     labels = labels.type(torch.LongTensor).cuda()
     for i, (label, tech, note, note_state) in enumerate(zip(labels, preds['tech'], preds['note'], preds['note_state'])):
@@ -61,7 +60,7 @@ def get_transcription_and_cmx(labels, preds, ep, technique_dict):
         # state_label = label[:,0]
         # note_label = label[:,2]
         # tech_label = label[:,3]
-        transcriptions = gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_label, note, tech_label, tech, i, ep)
+        transcriptions = gen_transcriptions_and_midi(transcriptions, state_label, note_state, note_label, note, tech_label, tech, i, ep, scaling=scaling)
 
     # get macro metrics
     tech_label = labels[:,:,57:].argmax(axis=2).flatten()
@@ -257,6 +256,7 @@ def extract_technique(techs, states=None, scale2time=True, scaling=None):
 
     # convert time steps to seconds
     if scale2time:
+        print('============', scaling)
         intervals = (np.array(intervals) * scaling).reshape(-1, 2)
 
     return np.array(techniques), intervals, org_intervals

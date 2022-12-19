@@ -40,55 +40,55 @@ def plot_predicted_transcription(specs, probs, note_interval, note, tech_interva
     # specs = specs.cpu().detach().numpy()
     for i, (spec, prob, x, y, x_tech, y_tech, onset) in enumerate(zip(specs, probs, note_interval, note, tech_interval, tech, state)):
         time_range = spec.shape[0] * (HOP_LENGTH/SAMPLE_RATE)
-        fig, ax = plt.subplots(5, 1, constrained_layout=True, figsize=(48,20), gridspec_kw={'height_ratios': [3,3,3,4,1]})
+        fig, ax = plt.subplots(2, 1, constrained_layout=True, figsize=(100,20), gridspec_kw={'height_ratios': [4,1]})
         ax = ax.flat
         # spectrogram
-        librosa.display.specshow(spec.transpose(), y_axis='mel', sr=SAMPLE_RATE, fmax=MEL_FMAX, ax=ax[0])
-        ax[0].set_ylabel('f (Hz)', fontsize=70)
-        ax[0].tick_params(labelsize=65)
-        label_format = '{:,.0f}'
-        ticks_loc = ax[0].get_yticks().tolist()
-        ax[0].set_ylim([512, 4096])
-        ax[0].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
-        ax[0].set_yticklabels([label_format.format(x) for x in ticks_loc])
-        # note prob
-        ax[1].imshow(np.flip(prob[0].transpose(), 0), cmap='plasma')
-        ax[1].set_xlim([0, spec.shape[0]])
-        ax[1].axis('off')
-        # note prob refined by state
-        ax[2].imshow(np.flip(prob[1].transpose(), 0), cmap='plasma')
-        ax[2].set_xlim([0, spec.shape[0]])
-        ax[2].axis('off')
+        # librosa.display.specshow(spec.transpose(), y_axis='mel', sr=SAMPLE_RATE, fmax=MEL_FMAX, ax=ax[0])
+        # ax[0].set_ylabel('f (Hz)', fontsize=70)
+        # ax[0].tick_params(labelsize=65)
+        # label_format = '{:,.0f}'
+        # ticks_loc = ax[0].get_yticks().tolist()
+        # ax[0].set_ylim([512, 4096])
+        # ax[0].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
+        # ax[0].set_yticklabels([label_format.format(x) for x in ticks_loc])
+        # # note prob
+        # ax[1].imshow(np.flip(prob[0].transpose(), 0), cmap='plasma')
+        # ax[1].set_xlim([0, spec.shape[0]])
+        # ax[1].axis('off')
+        # # note prob refined by state
+        # ax[2].imshow(np.flip(prob[1].transpose(), 0), cmap='plasma')
+        # ax[2].set_xlim([0, spec.shape[0]])
+        # ax[2].axis('off')
         # note transcription
-        ax[3].tick_params(labelbottom=False, labelsize=65)
-        ax[3].set_ylabel('midi #', fontsize=70)
-        ax[3].set_xlim([0, time_range])
-        ax[3].set_ylim([70, 90])
+        ax[0].tick_params(labelbottom=False, labelsize=65)
+        ax[0].set_ylabel('midi #', fontsize=70)
+        ax[0].set_xlim([0, time_range])
+        ax[0].set_ylim([60, 100])
         # ax[3].set_yticklabels([70, 80, 90])
         label_format = '{:,.0f}'
-        ticks_loc = ax[3].get_yticks().tolist()
-        ax[3].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
-        ax[3].set_yticklabels([label_format.format(x) for x in ticks_loc])
+        ticks_loc = ax[0].get_yticks().tolist()
+        ax[0].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
+        ax[0].set_yticklabels([label_format.format(x) for x in ticks_loc])
         for j, t in enumerate(x):
             x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
             y_val = np.full(len(x_val), y[j])
-            ax[3].plot(x_val, y_val, linewidth=7.5)
+            ax[0].plot(x_val, y_val, linewidth=7.5)
             # ax[1].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
         # onset information
         for o in onset:
-            ax[3].vlines(o, ymin=70, ymax=90, linestyles='dotted')
+            ax[0].vlines(o, ymin=60, ymax=100, linestyles='dotted')
         # techique transcription
-        # ax[4].set_xlabel('time (s)', fontsize=37)
+        ax[1].set_xlabel('time (s)', fontsize=70)
         # ax[4].set_ylabel('technique', fontsize=37)
-        ax[4].tick_params(labelleft=False, labelbottom=False)
-        ax[4].set_xlim([0, time_range])
+        ax[1].tick_params(labelleft=False, labelsize=60)#, labelbottom=False)
+        ax[1].set_xlim([0, time_range])
         for j, t in enumerate(x_tech):
             x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
             # y_val = np.full(len(x_val), y_tech[j])
             y_val = np.ones(len(x_val))
-            ax[4].text(x_val[len(x_val) // 2], 1, tech_trans[y_tech[j]], fontsize=65)
-            ax[4].plot(x_val, y_val, linewidth=7.5)
-            ax[4].vlines(t[0], ymin=0.7, ymax=2, linestyles='dotted')
+            ax[1].text(x_val[len(x_val) // 2], 1, tech_trans[y_tech[j]], fontsize=45)
+            ax[1].plot(x_val, y_val, linewidth=7.5)
+            ax[1].vlines(t[0], ymin=0.7, ymax=2, linestyles='dotted')
         plt.savefig(f'{save_folder}/prediction/{i}.png')
         plt.close()
 
@@ -108,40 +108,40 @@ def plot_groundtruth_transcription(specs, note_interval, note, tech_interval, te
     # specs = specs.cpu().detach().numpy()
     for i, (spec, x, y, x_tech, y_tech, onset) in enumerate(zip(specs, note_interval, note, tech_interval, tech, state)):
         time_range = spec.shape[0] * (HOP_LENGTH/SAMPLE_RATE)
-        fig, ax = plt.subplots(3, 1, constrained_layout=True, figsize=(48,20), gridspec_kw={'height_ratios': [40.5,18,4.5]})
+        fig, ax = plt.subplots(2, 1, constrained_layout=True, figsize=(100,20), gridspec_kw={'height_ratios': [4, 1]})
         ax = ax.flat
         # spectrogram
-        librosa.display.specshow(spec.transpose(), y_axis='mel', sr=SAMPLE_RATE, fmax=MEL_FMAX, ax=ax[0])
+        # librosa.display.specshow(spec.transpose(), y_axis='mel', sr=SAMPLE_RATE, fmax=MEL_FMAX, ax=ax[0])
         # ax[0].set_ylabel('spectrogram')
         # note transcription
-        ax[1].tick_params(labelbottom=False, labelsize=65)
-        ax[1].set_ylabel('midi # (GT)', fontsize=70)
-        ax[1].set_xlim([0, time_range])
-        ax[1].set_ylim([70, 90])
+        ax[0].tick_params(labelbottom=False, labelsize=65)
+        ax[0].set_ylabel('midi # (GT)', fontsize=70)
+        ax[0].set_xlim([0, time_range])
+        ax[0].set_ylim([60, 100])
         label_format = '{:,.0f}'
-        ticks_loc = ax[1].get_yticks().tolist()
-        ax[1].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
-        ax[1].set_yticklabels([label_format.format(x) for x in ticks_loc])
+        ticks_loc = ax[0].get_yticks().tolist()
+        ax[0].yaxis.set_major_locator(mticker.FixedLocator(ticks_loc))
+        ax[0].set_yticklabels([label_format.format(x) for x in ticks_loc])
         for j, t in enumerate(x):
             x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
             y_val = np.full(len(x_val), y[j])
-            ax[1].plot(x_val, y_val, linewidth=7.5)
-            # ax[1].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
+            ax[0].plot(x_val, y_val, linewidth=7.5)
+            # ax[0].vlines(t[0], ymin=51, ymax=100, linestyles='dotted')
         # onset information
         for o in onset:
-            ax[1].vlines(o, ymin=70, ymax=90, linestyles='dotted')
+            ax[0].vlines(o, ymin=60, ymax=100, linestyles='dotted')
         # techique transcription
-        ax[2].tick_params(labelleft=False, labelsize=65)
-        ax[2].set_xlabel('time (s)', fontsize=70)
-        # ax[2].set_ylabel('technique', fontsize=60)
-        ax[2].set_xlim([0, time_range])
+        ax[1].tick_params(labelleft=False, labelsize=60)
+        ax[1].set_xlabel('time (s)', fontsize=70)
+        # ax[1].set_ylabel('technique', fontsize=60)
+        ax[1].set_xlim([0, time_range])
         for j, t in enumerate(x_tech):
             x_val = np.arange(t[0], t[1], HOP_LENGTH/SAMPLE_RATE)
             # y_val = np.full(len(x_val), y_tech[j])
             y_val = np.ones(len(x_val))
-            ax[2].text(x_val[len(x_val) // 2], 1, tech_trans[y_tech[j]], fontsize=68)
-            ax[2].plot(x_val, y_val, linewidth=7.5)
-            ax[2].vlines(t[0], ymin=0.7, ymax=2, linestyles='dotted')
+            ax[1].text(x_val[len(x_val) // 2], 1, tech_trans[y_tech[j]], fontsize=45)
+            ax[1].plot(x_val, y_val, linewidth=7.5)
+            ax[1].vlines(t[0], ymin=0.7, ymax=2, linestyles='dotted')
         plt.savefig(f'{save_folder}/groundtruth/{i}.png')
         plt.close()
 

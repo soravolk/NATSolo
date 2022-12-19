@@ -2,7 +2,7 @@
 Solo
 runs
 checkpoint
-model/__pycache__
+__pycache__
 midi/
 .DS_store
 checkpoint
