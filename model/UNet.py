@@ -329,14 +329,12 @@ class Spec2Roll(nn.Module):
         note_prob_tech = note_prob.detach()
 
         state_note_cat = torch.cat((state_prob.squeeze(1), note_prob.squeeze(1)), 2)
-        # tech_cat = torch.cat((note_prob_tech.squeeze(1), tech_prob.squeeze(1)), 2)
         tech_cat = torch.cat((note_prob_tech.squeeze(1), group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
-        # tech_cat = torch.cat((group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
+
         note_post_a, a = self.state_note_attention(state_note_cat)
         tech_post_a, a = self.group_tech_attention(tech_cat)
 
         return (state_post_a, group_post_a, note_post_a, tech_post_a, note_post_ab, tech_post_ab), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
-        # return (state_post_a, state_post_a, note_post_a, tech_post_ab, note_post_ab, tech_post_ab), (state_post.squeeze(1), state_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
 
 ### VAT for unlabelled data ###
 ''' loss for VAT '''
@@ -552,7 +550,6 @@ class UNet(nn.Module):
             lds_ul = torch.tensor(0.)
             r_norm_ul = torch.tensor(0.)
         #####################for unlabelled audio###########################
-
         # Converting audio to spectrograms
         # spectrogram needs input (num_audio, len_audio):
         ## convert each batch to a single channel audio
@@ -565,11 +562,8 @@ class UNet(nn.Module):
                 # batch 
                 audio = audio[:, :, 0]
 
-        # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
-        # spec_1 = self.get_spec(audio, 512) # x = torch.rand(8, 229, 640)
-        # spec_2 = self.get_spec(audio, 768)
-        # spec_3 = self.get_spec(audio, 1024)
-        spec_1 = self.spectrogram_1(audio) # x = torch.rand(8,229, 640)
+        # spec_1 = self.get_spec(audio, 512)
+        spec_1 = self.spectrogram_1(audio)
         spec_2 = self.spectrogram_2(audio)
         spec_3 = self.spectrogram_3(audio)
         # log compression
@@ -601,9 +595,6 @@ class UNet(nn.Module):
         
         pred, post, latent = self(spec)
         # state_criterion = CrossEntropyLoss(0.05, 50)
-        # group_criterion = CrossEntropyLoss(0.05, 4)
-        # note_criterion = CrossEntropyLoss(0.05, 50)
-        # tech_criterion = CrossEntropyLoss(0.05, 9)
         # softmax = nn.Softmax(dim=-1)
         if self.training:
             predictions = {
@@ -618,11 +609,7 @@ class UNet(nn.Module):
                     'loss/train_group': 3 * F.binary_cross_entropy_with_logits(pred[1], group_label, pos_weight=group_weights),
                     'loss/train_note': F.binary_cross_entropy_with_logits(pred[2], note_label),
                     'loss/train_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label, pos_weight=tech_weights),
-
                     # 'loss/train_state': 3 * state_criterion(pred[0].reshape(-1,50), state_label.reshape(-1,50)),#, weight=state_weights),
-                    # 'loss/train_group': 3 * group_criterion(pred[1].reshape(-1,4), group_label.reshape(-1,4).argmax(axis=-1)),#, weight=group_weights),
-                    # 'loss/train_note': note_criterion(pred[2].reshape(-1,50), note_label.reshape(-1,50).argmax(axis=-1)),
-                    # 'loss/train_tech': tech_criterion(pred[3].reshape(-1,9), tech_label.reshape(-1,9).argmax(axis=-1)),#, weight=tech_weights),
                     'loss/train_LDS_l': lds_l,
                     'loss/train_LDS_ul': lds_ul,
                     'loss/train_r_norm_l': r_norm_l.abs().mean(),
@@ -636,18 +623,7 @@ class UNet(nn.Module):
             note_pred = torch.sigmoid(pred[2])[:,:bins,:]
             tech_pred = torch.sigmoid(pred[3])[:,:bins,:]
             # state_pred = softmax(pred[0])
-            # group_pred = softmax(pred[1])
-            # note_pred = softmax(pred[2])
-            # tech_pred = softmax(pred[3])
-            # testing
-            # note_pred = note_pred.reshape(-1, 50)
-            # note = []
-            # for s in note_pred:
-            #     if s[s.argmax()] < 0.5:
-            #         note.append(0)
-            #     else:
-            #         note.append(s.argmax())
-            # note_pred = torch.tensor(note)            
+            # testing           
             state_pred = state_pred.reshape(-1, 3)
             state = []
             for s in state_pred:
@@ -670,9 +646,6 @@ class UNet(nn.Module):
                     'loss/test_note': F.binary_cross_entropy_with_logits(pred[2][:,:bins,:], note_label),
                     'loss/test_tech': F.binary_cross_entropy_with_logits(pred[3][:,:bins,:], tech_label),
                     # 'loss/test_state': state_criterion(pred[0].reshape(-1,50), state_label.reshape(-1,50)),
-                    # 'loss/test_group': group_criterion(pred[1].reshape(-1,4), group_label.reshape(-1,4).argmax(axis=-1)),
-                    # 'loss/test_note': note_criterion(pred[2].reshape(-1,50), note_label.reshape(-1,50).argmax(axis=-1)),
-                    # 'loss/test_tech': tech_criterion(pred[3].reshape(-1,9), tech_label.reshape(-1,9).argmax(axis=-1)),
                     'loss/test_LDS_l': lds_l,
                     'loss/test_r_norm_l': r_norm_l.abs().mean()                  
                     }

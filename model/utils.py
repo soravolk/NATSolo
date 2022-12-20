@@ -60,6 +60,48 @@ def summary(model, file=sys.stdout):
 
     return count
 
+def plot_post_and_latent(writer, ep, post_a, post, latent, flux):
+    state_post_a = post_a[0] # processed by attention
+    group_post_a = post_a[1]
+    note_post_a = post_a[2]
+    tech_post_a = post_a[3]
+    note_post_ab = post_a[4]
+    tech_post_ab = post_a[5]
+    state_post = post[0]
+    group_post = post[1]
+    note_post = post[2]
+    tech_post = post[3]
+    state_group_latent = latent[0][:,1,:,:].squeeze(1)
+    note_tech_latent = latent[1][:,1,:,:].squeeze(1)
+    plot_spec_and_post(writer, ep, state_post, 'images/state_post')
+    plot_spec_and_post(writer, ep, group_post, 'images/group_post')
+    plot_spec_and_post(writer, ep, note_post, 'images/note_post')
+    plot_spec_and_post(writer, ep, tech_post, 'images/tech_post')
+    plot_spec_and_post(writer, ep, state_post_a, 'images/state_post_a')
+    plot_spec_and_post(writer, ep, group_post_a, 'images/group_post_a')
+    plot_spec_and_post(writer, ep, note_post_a, 'images/note_post_a')
+    plot_spec_and_post(writer, ep, tech_post_a, 'images/tech_post_a')
+    plot_spec_and_post(writer, ep, note_post_ab, 'images/note_post_a_before')
+    plot_spec_and_post(writer, ep, tech_post_ab, 'images/tech_post_a_before')
+    plot_spec_and_post(writer, ep, state_group_latent, 'images/state_group_latent')
+    plot_spec_and_post(writer, ep, note_tech_latent, 'images/note_tech_latent')
+    plot_spec_and_post(writer, ep, flux, 'images/spectral_flux')
+
+def plot_transcriptions(writer, ep, mel, transcriptions):
+    plot_transcription(writer, ep, 'transcription/ground_truth', mel, transcriptions['note_interval_gt'], transcriptions['note_gt'], transcriptions['tech_interval_gt'], transcriptions['tech_gt'], transcriptions['state_gt'])
+
+    plot_transcription(writer, ep, 'transcription/prediction', mel, transcriptions['note_interval'], transcriptions['note'], transcriptions['tech_interval'], transcriptions['tech'], transcriptions['state'])
+
+def plot_confusion_matrices(writer, ep, cm_dict, cm_dict_all):
+    for output_key in ['cm', 'Recall', 'Precision', 'cm_2', 'Recall_2', 'Precision_2']:
+        if output_key in cm_dict.keys():
+            if output_key in ['cm', 'cm_2']:
+                plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', 'd', 10)
+                plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', 'd', 10)
+            else:
+                plot_confusion_matrix(cm_dict[output_key], writer, ep, output_key, f'images/{output_key}', '.2f', 6)  
+                plot_confusion_matrix(cm_dict_all[output_key], writer, ep, output_key, f'images/{output_key}_all', '.2f', 6)
+
 def plot_spec_and_post(writer, ep, source, figname):
     source = source.cpu().detach().numpy()
     fig, axs = plt.subplots(2, 2, figsize=(24,8))
