@@ -329,10 +329,10 @@ class Spec2Roll(nn.Module):
         note_prob_tech = note_prob.detach()
 
         state_note_cat = torch.cat((state_prob.squeeze(1), note_prob.squeeze(1)), 2)
-        tech_cat = torch.cat((note_prob_tech.squeeze(1), group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
+        note_group_tech_cat = torch.cat((note_prob_tech.squeeze(1), group_prob.squeeze(1), tech_prob.squeeze(1)), 2)
 
         note_post_a, a = self.state_note_attention(state_note_cat)
-        tech_post_a, a = self.group_tech_attention(tech_cat)
+        tech_post_a, a = self.group_tech_attention(note_group_tech_cat)
 
         return (state_post_a, group_post_a, note_post_a, tech_post_a, note_post_ab, tech_post_ab), (state_post.squeeze(1), group_post.squeeze(1), note_post.squeeze(1), tech_post.squeeze(1)), (state_group_enc, note_tech_enc)
 
