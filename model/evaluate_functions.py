@@ -123,14 +123,6 @@ def evaluate_prediction(data, model, ep, scaling, save_path=None, reconstruction
     for val_data in tqdm(data):
         total_loss = 0
         pred, losses, spec, prob, _, _ = model.run_on_batch(val_data)
-        # if val_loss is None:
-        #     val_loss = defaultdict(list)
-        #     for key, value in {**losses}.items():
-        #         val_loss[key] = value
-        # else:
-        #     for key, value in {**losses}.items():
-        #         val_loss[key] += value             
-        # get label from one hot vector
         ######## for state of size 3 ########
         state_label = val_data['label'][:,:3].argmax(axis=1)
         group_label = val_data['label'][:,3:7].argmax(axis=1)
