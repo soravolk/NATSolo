@@ -47,13 +47,10 @@ def config():
     train_on = 'Solo'
     n_heads=4
     iteration = 10 # 10
-    VAT_start = 0
     alpha = 1
-    VAT=False
     XI= 1e-6
     eps=1.3 # 2
     reconstruction = False
-    batch_size = 8
     train_batch_size = 8
     val_batch_size = 4
     sequence_length = 96000 #163840 # 327680
@@ -80,7 +77,7 @@ def config():
     logdir = f'{root}/{model_save_dir}'
     ex.observers.append(FileStorageObserver.create(f'checkpoint/{model_save_dir}'))
 
-def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer, VAT, VAT_start, reconstruction, has_features):
+def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer, reconstruction, has_features):
     scaling = HOP_LENGTH / SAMPLE_RATE
     # log various result from the validation audio
     model.eval()
@@ -100,7 +97,7 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep
         #     writer.add_scalar(key, value.item(), global_step=ep) 
 
         # visualized validation audio
-        predictions, _, spec, post_a, post, latent = model.run_on_batch(batch_visualize, None, VAT)
+        predictions, _, spec, post_a, post, latent = model.run_on_batch(batch_visualize)
         mel = spec[0]
         flux = spec[1]
         # Show the original transcription and spectrograms
@@ -122,12 +119,12 @@ def tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep
         plot_confusion_matrices(writer, ep, cm_dict, cm_dict_all) 
 
         model.eval()
-        test_losses = eval_model(model, ep, val_loader, VAT_start, VAT)
+        test_losses = eval_model(model, ep, val_loader)
         for key, values in test_losses.items():
             if key.startswith('loss/'):
                 writer.add_scalar(key, np.mean(values), global_step=ep)
 
-def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha, VAT=False, VAT_start=0):
+def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, scheduler, clip_gradient_norm, alpha):
     model.train()
     batch_size = l_loader.batch_size
     total_loss = 0
@@ -140,11 +137,7 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
         optimizer.zero_grad()
         batch_l = next(l_loader)
         
-        if (ep < VAT_start) or (VAT==False):
-            predictions, losses = model.run_on_batch(batch_l, None, False)
-        else:
-            batch_ul = next(ul_loader)
-            predictions, losses = model.run_on_batch(batch_l, batch_ul, VAT)
+        predictions, losses = model.run_on_batch(batch_l)
 
         for key, loss in losses.items():
             metrics[key].append(loss.item())
@@ -177,10 +170,7 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
     return predictions, losses, metrics, optimizer
 
 @ex.automain
-def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, train_batch_size, val_batch_size,
-          learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, weight_decay, alpha,
-          clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, VAT_start, VAT, XI, eps,
-          reconstruction, model_save_dir, has_note, has_tech, has_state, has_group): 
+def train(spec, resume_iteration, sequence_length, w_size, n_heads, train_batch_size, val_batch_size, learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, weight_decay, alpha, clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, XI, eps, reconstruction, model_save_dir, has_note, has_tech, has_state, has_group): 
     print_config(ex.current_run)
     # flac for 16K audio
     has_features = (has_state, has_group, has_note, has_tech)
@@ -191,8 +181,7 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
         device=device,
         audio_type='flac'
     )  
-    if VAT:
-        unsupervised_loader = DataLoader(unsupervised_set, batch_size, shuffle=True, drop_last=True)
+
     #generator=torch.Generator().manual_seed(42))
     
     # get weight of tech label for BCE loss
@@ -224,25 +213,15 @@ def train(spec, resume_iteration, batch_size, sequence_length, w_size, n_heads, 
     scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
 
     for ep in tqdm(range(1, epoches+1)):
-        if VAT==True:
-            predictions, losses, train_losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, unsupervised_loader,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)
-        else:
-            predictions, losses, train_losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None,
-                                                             optimizer, scheduler, clip_gradient_norm, alpha, VAT, VAT_start)            
+       
+        predictions, losses, train_losses, optimizer = train_VAT_model(model, iteration, ep, supervised_loader, None, optimizer, scheduler, clip_gradient_norm, alpha)            
         loss = sum(losses.values())
 
         # Logging results to tensorboard
         if ep == 1:
             writer = SummaryWriter(logdir) # create tensorboard logger     
-        if ep < VAT_start or VAT == False:
-            tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
-                            ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                            False, VAT_start, reconstruction, has_features)
-        else:
-            tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set,
-                            ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer,
-                            True, VAT_start, reconstruction, has_features)            
+     
+        tensorboard_log(batch_visualize, model, valid_set, val_loader, train_set, ep, logging_freq, saving_freq, n_heads, logdir, w_size, writer, reconstruction, has_features)        
 
         # Saving model
         if ep == 1 or (ep > 900 and (ep)%logging_freq == 0):

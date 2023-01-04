@@ -122,7 +122,7 @@ def evaluate_prediction(data, model, ep, scaling, save_path=None, reconstruction
 
     for val_data in tqdm(data):
         total_loss = 0
-        pred, losses, spec, prob, _, _ = model.run_on_batch(val_data, None, False)
+        pred, losses, spec, prob, _, _ = model.run_on_batch(val_data)
         # if val_loss is None:
         #     val_loss = defaultdict(list)
         #     for key, value in {**losses}.items():
@@ -197,16 +197,13 @@ def evaluate_prediction(data, model, ep, scaling, save_path=None, reconstruction
     else:
         return metrics, cm_dict_all, inference, specs, probs
 
-def eval_model(model, ep, loader, VAT_start=0, VAT=False):
+def eval_model(model, ep, loader):
     model.eval()
     batch_size = loader.batch_size
     metrics = defaultdict(list)
     i = 0 
     for batch in loader:
-        if ep < VAT_start or VAT==False:
-            predictions, losses, _, _, _, _ = model.run_on_batch(batch, None, False)
-        else:
-            predictions, losses, _, _, _, _ = model.run_on_batch(batch, None, True)
+        predictions, losses, _, _, _, _ = model.run_on_batch(batch)
 
         for key, loss in losses.items():
             metrics[key].append(loss.item())

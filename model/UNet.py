@@ -498,7 +498,7 @@ class UNet(nn.Module):
         pred, post, latent = self.transcriber(x, self.training)
         return pred, post, latent
 
-    def run_on_batch(self, batch, batch_ul=None, VAT=False):
+    def run_on_batch(self, batch):
         device = self.device
         audio = batch['audio']
 
@@ -518,37 +518,7 @@ class UNet(nn.Module):
             state_weights = self.weights[0]
             group_weights = self.weights[1]
             tech_weights = self.weights[2]
-        #####################for unlabelled audio###########################
-        # do VAT for unlabelled audio
-        if batch_ul:
-            audio_ul = batch_ul['audio']
-            if audio_ul.dim() == 2 and audio_ul.shape[-1] != 2:
-                # audio_ul is already mono
-                audio_ul.unsqueeze_(-1)
-                audio_ul = audio_ul[:, :, 0]
 
-            # WARNING: change the input channel from 1 to 2 to test hop 256 and 512
-            spec_1 = self.spectrogram_1(audio_ul) # x = torch.rand(8,229, 640)
-            spec_2 = self.spectrogram_2(audio_ul)
-            spec_3 = self.spectrogram_3(audio_ul)
-            if self.log:
-                spec_1 = torch.log(1 + 30 * spec_1) # (spec_1 + 1e-5)
-                spec_2 = torch.log(1 + 30 * spec_2)
-                spec_3 = torch.log(1 + 30 * spec_3)
-                spec_1 = self.normalize.transform(spec_1)
-                spec_2 = self.normalize.transform(spec_2)
-                spec_3 = self.normalize.transform(spec_3)
-
-            spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # torch.rand(8, 1, 229, 640)
-            spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
-            spec_3 = spec_3.transpose(-1,-2).unsqueeze(1)
-            
-            spec = torch.cat((spec_1, spec_2, spec_3), 1) # torch.rand(8, 2, 229, 640)
-            lds_ul, _, r_norm_ul = self.vat_loss(self, spec)
-        else:
-            # lds_ul = torch.tensor(0.)
-            lds_ul = torch.tensor(0.)
-            r_norm_ul = torch.tensor(0.)
         #####################for unlabelled audio###########################
         # Converting audio to spectrograms
         # spectrogram needs input (num_audio, len_audio):
@@ -583,15 +553,11 @@ class UNet(nn.Module):
         spec_flux = spec_2 - torch.cat((spec_2[:,:,1:,:], torch.zeros(spec_2[:,:,1,:].unsqueeze(2).shape).cuda()), 2)
         ############ spectral flux ############
         spec = torch.cat((spec_1, spec_2, spec_3, spec_flux), 1)
-        # do VAT for labelled audio
-        if VAT:
-            lds_l, r_adv, r_norm_l = self.vat_loss(self, spec)
-            r_adv = r_adv.squeeze(1) # remove the channel dimension
-        else:
-            r_adv = None
-            lds_l = torch.tensor(0.)
-            r_norm_l = torch.tensor(0.)
-        
+    
+        # assume no VAT
+        r_adv = None
+        lds_l = torch.tensor(0.)
+        r_norm_l = torch.tensor(0.)
         
         pred, post, latent = self(spec)
         # state_criterion = CrossEntropyLoss(0.05, 50)
@@ -611,9 +577,7 @@ class UNet(nn.Module):
                     'loss/train_tech': F.binary_cross_entropy_with_logits(pred[3], tech_label, pos_weight=tech_weights),
                     # 'loss/train_state': 3 * state_criterion(pred[0].reshape(-1,50), state_label.reshape(-1,50)),#, weight=state_weights),
                     'loss/train_LDS_l': lds_l,
-                    'loss/train_LDS_ul': lds_ul,
                     'loss/train_r_norm_l': r_norm_l.abs().mean(),
-                    'loss/train_r_norm_ul': r_norm_ul.abs().mean()                 
                     }
             return predictions, losses
         else:
