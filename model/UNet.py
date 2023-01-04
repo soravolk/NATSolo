@@ -372,17 +372,11 @@ class UNet_VAT(nn.Module):
 
     def forward(self, model, x):  
         with torch.no_grad():
-            y_ref, _ = model.transcriber(x) # This will be used as a label, therefore no need grad()
-            
-#             if self.reconstruction:
-#                 technique, _ = model.transcriber(x)
-#                 reconstruction, _ = self.reconstructor(technique)
-#                 technique2_ref, _ = self.transcriber(reconstruction)                
+            y_ref, _ = model.transcriber(x) # This will be used as a label, therefore no need grad()            
             
         # generate_virtual_adversarial_perturbation
         d = torch.randn_like(x, requires_grad=True) # Need gradient
-#         if self.reconstruction:
-#             d2 = torch.randn_like(x, requires_grad=True) # Need gradient            
+          
         for _ in range(self.n_power):
             r = self.XI * _l2_normalize(d, binwise=self.binwise)
             x_adv = (x + r).clamp(0,1)
@@ -451,15 +445,12 @@ class UNet(nn.Module):
                                                       n_bins=N_BINS, fmin=27.5, 
                                                       bins_per_octave=12*r, trainable=False)
         elif spec == 'Mel':
-            self.spectrogram_1 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=512, n_mels=N_BINS,
-                                                          hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
-                                                          trainable_mel=False, trainable_STFT=False)
-            self.spectrogram_2 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=768, n_mels=N_BINS,
-                                                          hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
-                                                          trainable_mel=False, trainable_STFT=False)
-            self.spectrogram_3 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=1024, n_mels=N_BINS,
-                                                          hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
-                                                          trainable_mel=False, trainable_STFT=False)
+            self.spectrogram_1 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=512, n_mels=N_BINS, hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX, trainable_mel=False, trainable_STFT=False)
+
+            self.spectrogram_2 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=768, n_mels=N_BINS, hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX, trainable_mel=False, trainable_STFT=False)
+
+            self.spectrogram_3 = features.MelSpectrogram(sr=SAMPLE_RATE, n_fft=1024, n_mels=N_BINS, hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX, trainable_mel=False, trainable_STFT=False)
+
         elif spec == 'CFP':
             self.spectrogram = features.CFP(fs=SAMPLE_RATE,
                                                fr=4,
@@ -493,6 +484,16 @@ class UNet(nn.Module):
         
         return torch.from_numpy(mel).cuda()
 
+    def process_spec(self, spec, gamma=10):
+        # log compression
+        spec = torch.log(1 + gamma * spec) # (spec_1 + 1e-5)
+        # Normalizing spectrograms
+        spec = self.normalize.transform(spec)
+        # swap spec bins with timesteps so that it fits attention later 
+        spec = spec.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
+
+        return spec
+    
     def forward(self, x):
         # U-net 1
         pred, post, latent = self.transcriber(x, self.training)
@@ -533,22 +534,9 @@ class UNet(nn.Module):
                 audio = audio[:, :, 0]
 
         # spec_1 = self.get_spec(audio, 512)
-        spec_1 = self.spectrogram_1(audio)
-        spec_2 = self.spectrogram_2(audio)
-        spec_3 = self.spectrogram_3(audio)
-        # log compression
-        if self.log:
-            spec_1 = torch.log(1 + 10 * spec_1) # (spec_1 + 1e-5)
-            spec_2 = torch.log(1 + 10 * spec_2)
-            spec_3 = torch.log(1 + 10 * spec_3) # 1 + 5 * spec_3
-        # Normalizing spectrograms
-        spec_1 = self.normalize.transform(spec_1)
-        spec_2 = self.normalize.transform(spec_2)
-        spec_3 = self.normalize.transform(spec_3)
-        # swap spec bins with timesteps so that it fits attention later 
-        spec_1 = spec_1.transpose(-1,-2).unsqueeze(1) # shape (8,1,640,229)
-        spec_2 = spec_2.transpose(-1,-2).unsqueeze(1)
-        spec_3 = spec_3.transpose(-1,-2).unsqueeze(1)
+        spec_1 = self.process_spec(self.spectrogram_1(audio))
+        spec_2 = self.process_spec(self.spectrogram_2(audio))
+        spec_3 = self.process_spec(self.spectrogram_3(audio))
         ############ spectral flux ############
         spec_flux = spec_2 - torch.cat((spec_2[:,:,1:,:], torch.zeros(spec_2[:,:,1,:].unsqueeze(2).shape).cuda()), 2)
         ############ spectral flux ############
