@@ -1,4 +1,5 @@
 import os
+import sys
 from glob import glob
 from tqdm import tqdm
 from collections import defaultdict
@@ -254,13 +255,16 @@ class Solo(AudioDataset): #seed=42
 
         return zip(audio, tech_tsvs, note_tsvs)
 
-def prepare_VAT_dataset(sequence_length, validation_length, refresh, device, audio_type):
-    l_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device, audio_type=audio_type)            
-    valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device, audio_type=audio_type)
-    # full_validation (whole song)
-    # test_set = Solo(folders=['test'], sequence_length=None, device=device, audio_type=audio_type)
-    
-    return l_set, valid_set
+def prepare_dataset(sequence_length, validation_length, refresh, device, audio_type, dataset):
+    if dataset == 'Solo':
+        l_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device, audio_type=audio_type)            
+        valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device, audio_type=audio_type)
+        # full_validation (whole song)
+        # test_set = Solo(folders=['test'], sequence_length=None, device=device, audio_type=audio_type)
+        return l_set, valid_set
+    else: 
+        sys.exit("ERROR - Please provide a valid dataset")
+        
 
 def compute_dataset_weight(device):
     train_set = Solo(folders=['train_label'], sequence_length=None, device=device, refresh=None)

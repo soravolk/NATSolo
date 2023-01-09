@@ -21,7 +21,7 @@ from tqdm import tqdm
 from itertools import cycle
 
 from model.UNet import UNet
-from model.dataset import prepare_VAT_dataset, compute_dataset_weight
+from model.dataset import prepare_dataset, compute_dataset_weight
 from model.utils import *
 from model.convert import *
 from model.evaluate_functions import *
@@ -170,16 +170,17 @@ def train_VAT_model(model, iteration, ep, l_loader, ul_loader, optimizer, schedu
     return predictions, losses, metrics, optimizer
 
 @ex.automain
-def train(spec, resume_iteration, sequence_length, w_size, n_heads, train_batch_size, val_batch_size, learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, weight_decay, alpha, clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, XI, eps, reconstruction, model_save_dir, has_note, has_tech, has_state, has_group): 
+def train(spec, resume_iteration, sequence_length, w_size, n_heads, train_batch_size, val_batch_size, learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, weight_decay, alpha, clip_gradient_norm, refresh, device, epoches, logdir, log, iteration, XI, eps, reconstruction, model_save_dir, has_note, has_tech, has_state, has_group, train_on): 
     print_config(ex.current_run)
     # flac for 16K audio
     has_features = (has_state, has_group, has_note, has_tech)
-    train_set, valid_set = prepare_VAT_dataset(
+    train_set, valid_set = prepare_dataset(
         sequence_length=sequence_length,
         validation_length=sequence_length,
         refresh=refresh,
         device=device,
-        audio_type='flac'
+        audio_type='flac',
+        dataset=train_on
     )  
 
     #generator=torch.Generator().manual_seed(42))
