@@ -60,6 +60,13 @@ def parse_note_and_state(all_steps, all_note, note_label, note_state_label, hop,
         note_label[left:right] = note
     return note_label - LOGIC_MIDI, note_state_label
 
+def initialize_label(all_steps):
+    tech_group_label = torch.zeros(all_steps, dtype=torch.int8)
+    tech_label = torch.zeros(all_steps, dtype=torch.int8)
+    note_state_label = torch.zeros(all_steps, dtype=torch.int8)
+    note_label = torch.ones(all_steps, dtype=torch.int8) * 51
+    return tech_group_label, tech_label, note_state_label, note_label
+
 class AudioDataset(Dataset):
     def __init__(self, path, folders=None, sequence_length=None, seed=42, refresh=False, device='cpu', audio_type='flac', sr=SAMPLE_RATE, hop=HOP_LENGTH):
         self.path = path
@@ -178,10 +185,7 @@ class AudioDataset(Dataset):
         # labels' time steps
         all_steps = int(audio_length // self.hop)
         # 0 means silence (not lead guitar)
-        tech_group_label = torch.zeros(all_steps, dtype=torch.int8)
-        tech_label = torch.zeros(all_steps, dtype=torch.int8)
-        note_state_label = torch.zeros(all_steps, dtype=torch.int8)
-        note_label = torch.ones(all_steps, dtype=torch.int8) * 51
+        tech_group_label, tech_label, note_state_label, note_label = initialize_label(all_steps)
 
         # load labels(start, duration, techniques)
         all_tech = np.loadtxt(tech_tsv_path, delimiter='\t', skiprows=1)
@@ -193,13 +197,12 @@ class AudioDataset(Dataset):
         
         ##### concat all one-hot label #####
         note_state_label_onehot = F.one_hot(note_state_label.to(torch.int64), num_classes=3)
-        # note_state_label_onehot = F.one_hot(note_state_label.to(torch.int64) - 51, num_classes=50)
         tech_group_label_onehot = F.one_hot(tech_group_label.to(torch.int64), num_classes=4)
         # 0 % 51 = 0 means no note (the lowest note is 52)
         note_label_onehot = F.one_hot(note_label.to(torch.int64), num_classes=50)
         tech_label_onehot = F.one_hot(tech_label.to(torch.int64), num_classes=10)
         label = torch.cat((note_state_label_onehot, tech_group_label_onehot, note_label_onehot, tech_label_onehot), 1)
-        # label = torch.cat((note_state_label.unsqueeze(1), tech_group_label.unsqueeze(1), (note_label - 51).unsqueeze(1), tech_label.unsqueeze(1)), 1)
+
         data = dict(path=audio_path, audio=audio, note_state_label=note_state_label, tech_group_label=tech_group_label, tech_label=tech_label, label=label)
         torch.save(data, saved_data_path)
         return data
