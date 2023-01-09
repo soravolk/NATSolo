@@ -253,53 +253,11 @@ class Solo(AudioDataset): #seed=42
 
 def prepare_VAT_dataset(sequence_length, validation_length, refresh, device, audio_type):
     l_set = Solo(folders=['train_label'], sequence_length=sequence_length, device=device, audio_type=audio_type)            
-    ul_set = Solo(folders=['train_unlabel'], sequence_length=sequence_length, device=device, audio_type=audio_type) 
     valid_set = Solo(folders=['valid'], sequence_length=sequence_length, device=device, audio_type=audio_type)
     # full_validation (whole song)
     # test_set = Solo(folders=['test'], sequence_length=None, device=device, audio_type=audio_type)
     
-    return l_set, ul_set, valid_set
-    
-def tech_weights_by_group(y):
-    group_member = {
-        0: [0, 9],
-        1: [1, 2, 3],
-        2: [5, 7, 8],
-        3: [4, 6]
-    }
-    group = defaultdict(list)
-
-    for i in y:
-        if i in group_member[0]:
-            group[0].append(i)
-        elif i in group_member[1]:
-            group[1].append(i)
-        elif i in group_member[2]:
-            group[2].append(i)
-        elif i in group_member[3]:
-            group[3].append(i)
-
-    group_0_weights = compute_class_weight('balanced', np.unique(group[0]), group[0])
-    group_1_weights = compute_class_weight('balanced', np.unique(group[1]), group[1])
-    group_2_weights = compute_class_weight('balanced', np.unique(group[2]), group[2])
-    group_3_weights = compute_class_weight('balanced', np.unique(group[3]), group[3])
-    # print('=========== 0: ', np.unique(group[0]))
-    # print('=========== 1: ', np.unique(group[1]))
-    # print('=========== 2: ', np.unique(group[2]))
-    # print('=========== 3: ', np.unique(group[3]))
-    tech_weights = np.zeros(10)
-    tech_weights[0] = group_0_weights[0]
-    tech_weights[1] = group_1_weights[0]
-    tech_weights[2] = group_1_weights[1]
-    tech_weights[3] = group_1_weights[2]
-    tech_weights[4] = group_3_weights[0]
-    tech_weights[5] = group_2_weights[0]
-    tech_weights[6] = group_3_weights[1]
-    tech_weights[7] = group_2_weights[1]
-    tech_weights[8] = group_2_weights[2]
-    tech_weights[9] = group_0_weights[1]
-
-    return tech_weights
+    return l_set, valid_set
 
 def compute_dataset_weight(device):
     train_set = Solo(folders=['train_label'], sequence_length=None, device=device, refresh=None)
@@ -321,16 +279,5 @@ def compute_dataset_weight(device):
     note_state_weights[2] = 2 * note_state_weights[2]
     tech_weights = compute_class_weight('balanced', np.unique(y_3), y_3)
     tech_weights = torch.tensor(tech_weights, dtype=torch.float).to(device)
-    # tech_weights[5] = 4 * tech_weights[5]
-    # tech_weights[7] = 4 * tech_weights[7]
-    # tech_weights[8] = 4 * tech_weights[8]
-    # tech_weights = tech_weights_by_group(y_3)
-    # silent_weights = torch.ones(2, dtype=torch.float).to(device) * 2
-    # tech_state_weights = torch.ones(3, dtype=torch.float).to(device)
-    # tech_weights = torch.ones(10, dtype=torch.float).to(device) 
-    # note_state_weights = torch.ones(3, dtype=torch.float).to(device)
-    # note_weights = torch.ones(50, dtype=torch.float).to(device)
-    # class_weights = torch.cat((note_weights, tech_weights), 0)
-    #class_weights = torch.cat((note_state_weights, tech_group_weights, tech_weights), 0)
 
     return (note_state_weights, tech_group_weights, tech_weights)

@@ -174,7 +174,7 @@ def train(spec, resume_iteration, sequence_length, w_size, n_heads, train_batch_
     print_config(ex.current_run)
     # flac for 16K audio
     has_features = (has_state, has_group, has_note, has_tech)
-    train_set, unsupervised_set, valid_set = prepare_VAT_dataset(
+    train_set, valid_set = prepare_VAT_dataset(
         sequence_length=sequence_length,
         validation_length=sequence_length,
         refresh=refresh,
@@ -188,7 +188,6 @@ def train(spec, resume_iteration, sequence_length, w_size, n_heads, train_batch_
     bce_weights = compute_dataset_weight(device)
 
     print("train_set: ", len(train_set))
-    print("unsupervised_set: ", len(unsupervised_set))
     print("valid_set: ", len(valid_set))
     # print("test_set: ", len(test_set))
     supervised_loader = DataLoader(train_set, train_batch_size, shuffle=True, drop_last=True)
