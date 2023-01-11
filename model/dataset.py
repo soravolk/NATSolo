@@ -205,41 +205,33 @@ class AudioDataset(Dataset):
         return data
 
 class Solo(AudioDataset): #seed=42
-    def __init__(self, path='./Solo', folders=None, sequence_length=None, overlap=True,
-                 seed=50, refresh=False, device='cpu', audio_type='flac', sr=SAMPLE_RATE, hop=HOP_LENGTH):
+    def __init__(self, path='./Solo', folders=None, sequence_length=None, overlap=True, seed=50, refresh=False, device='cpu', audio_type='flac', sr=SAMPLE_RATE, hop=HOP_LENGTH):
         super().__init__(path, folders, sequence_length, seed, refresh, device, audio_type, sr, hop)
         self.audio_type = audio_type
+
     @classmethod
     def available_folders(cls):
-        return ['train', 'valid']
+        return ['train_label', 'valid']
     
+    def get_file_list(self, audio, audio_type):
+        # make sure tsv and wav are matched
+        tech_tsvs = [file.replace(f"{audio_type}/", "tech_tsv/").replace(f".{audio_type}", ".tsv") for file in audio]
+        
+        note_tsvs = [file.replace(f"{audio_type}/", "note_tsv/").replace(f".{audio_type}", ".tsv") for file in audio]    
+
+        return tech_tsvs, note_tsvs
+
     def appending_wav_tsv(self, folder):
         audio = list(glob(os.path.join(self.path, f"{folder}/{self.audio_type}", f'*.{self.audio_type}')))
         audio = sorted(audio)
-        if folder == 'train_unlabel':
-          return audio
 
-        # make sure tsv and wav are matched
-        tech_tsvs = []
-        note_tsvs = []
-        for file in audio:
-            if self.audio_type == 'flac':
-                tech_name = self.path + f"/{folder}/tech_tsv/" + file.split("/")[-1][:-4] + 'tsv'
-                note_name = self.path + f"/{folder}/note_tsv/" + file.split("/")[-1][:-4] + 'tsv'
-            elif self.audio_type == 'wav':
-                tech_name = self.path + f"/{folder}/tech_tsv/" + file.split("/")[-1][:-3] + 'tsv'
-                note_name = self.path + f"/{folder}/note_tsv/" + file.split("/")[-1][:-3] + 'tsv'
-            tech_tsvs.append(tech_name)
-            note_tsvs.append(note_name)
+        tech_tsvs, note_tsvs = self.get_file_list(audio, self.audio_type)
 
         return audio, tech_tsvs, note_tsvs
 
     def files(self, folder):
         if folder == 'train_label':
             audio, tech_tsvs, note_tsvs = self.appending_wav_tsv(folder)
-        elif folder == 'train_unlabel':
-            audio = self.appending_wav_tsv(folder)
-            return zip(audio)
         elif folder == 'valid':
             audio, tech_tsvs, note_tsvs = self.appending_wav_tsv(folder)
         elif folder == 'test':
