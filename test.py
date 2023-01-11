@@ -1,3 +1,4 @@
+import os
 import argparse
 import torch
 import numpy
@@ -149,6 +150,16 @@ def save_transcription_and_midi(inferences, spec, prob, save_folder, scaling):
     transcription_path = f'{save_folder}/transcription'
     midi_path = f'{save_folder}/midi'
 
+    if not os.path.isdir(transcription_path):
+        os.mkdir(transcription_path)
+    if not os.path.isdir(f"{transcription_path}/groundtruth"):
+        os.mkdir(f"{transcription_path}/groundtruth")
+    if not os.path.isdir(f"{transcription_path}/prediction"):
+        os.mkdir(f"{transcription_path}/prediction")
+
+    if not os.path.isdir(midi_path):
+        os.mkdir(midi_path)
+
     transcriptions = defaultdict(list)
     note_labels = inferences['testing_note_label']
     state_labels = inferences['testing_state_label']
@@ -188,6 +199,13 @@ def load_model(path, device):
 
 def save_metrics(metrics, save_folder, dataset):
     metrics_path = f'{save_folder}/metrics'
+
+    if not os.path.isdir(metrics_path):
+        os.mkdir(metrics_path)
+
+    if not os.path.isdir(f"{metrics_path}/{dataset}"):
+        os.mkdir(f"{metrics_path}/{dataset}")
+
     with open(f'{metrics_path}/{dataset}/metrics.txt', 'w') as f:
         for key, values in metrics.items():
             if key.startswith('metric/'):
@@ -199,24 +217,12 @@ def save_metrics(metrics, save_folder, dataset):
     #         writer.add_scalar(key, np.mean(values), global_step=ep)
 
 def evaluation(model, testing_set, save_path, has_state, has_group, has_note, has_tech, dataset):
-    technique_dict = {
-        0: 'no tech',
-        1: 'slide',
-        2: 'bend',
-        3: 'trill',
-        4: 'mute',
-        5: 'pull',
-        6: 'harmonic',
-        7: 'hammer',
-        8: 'tap',
-        9: 'normal',
-    }
 
     scaling = HOP_LENGTH / SAMPLE_RATE
     ep = 1
     model.eval()
     with torch.no_grad():
-        metrics, cm_dict_all, inferences, spec, prob = evaluate_prediction(testing_set, model, ep, technique_dict, scaling, save_path=save_path, testing=True, has_state=has_state, has_group=has_group, eval_note=has_note, eval_tech=has_tech)
+        metrics, cm_dict_all, inferences, spec, prob = evaluate_prediction(testing_set, model, ep, scaling, save_path=save_path, testing=True, has_state=has_state, has_group=has_group, eval_note=has_note, eval_tech=has_tech)
         save_metrics(metrics, args.save_path, dataset)
 
         if has_note and has_tech:
@@ -234,6 +240,9 @@ if __name__ == '__main__':
     tech = (args.tech == 1)
     testing_set = load_data(args.audio_type, device, args.dataset)
     model = load_model(args.model, device)
+
+    if not os.path.isdir(args.save_path):
+        os.mkdir(args.save_path)
     evaluation(model, testing_set, args.save_path, state, group, note, tech, args.dataset)
     # for dataset in ['EG_Solo', 'GN']:
     #     testing_set = load_data(args.audio_type, device, dataset)
